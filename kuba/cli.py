@@ -864,7 +864,7 @@ def cli():
 @click.option("--no-containers", is_flag=True, help="Don't include aliases and completions for container-level commands.")
 @click.option("--ssh-bastion", help="SSH bastion option to use with kuba ssh.")
 @click.option("--ssh-use-name", is_flag=True, help="Use name option to use with kuba ssh.")
-@click.option("--list", "list_resource_aliases", is_flag=True, help="Just list all generated aliases and completions.")
+@click.option("--list", "list_resource_aliases", is_flag=True, help="Just list all resource aliases.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 def shellenv_cmd(
     rtypes: dict[str, str],
@@ -885,13 +885,13 @@ def shellenv_cmd(
     E.g. kp for kubectl get pod.
 
     Generated aliases all forward to kuba, which eventually forwards to kubectl, including any kubectl-specific
-    parameters. Passing kubectl arguments and shell completion both have rough edges.
+    parameters. Passing kubectl arguments and shell completion both have some rough edges.
 
     GENERAL
 
     \b
     - kns => kuba ns
-    - kctx => kuba ctx (suffixes: l=list, n=ns, s=nss)
+    - kctx => kuba ctx (suffixes: l=list, n=ns)
     - kclus => kuba cluster
     - kssh => kuba ssh (suffixes: a=any, p=pods)
     - kapi => kuba api (suffixes: n=name, z=select)
@@ -914,7 +914,8 @@ def shellenv_cmd(
 
     \b
     Alias modifiers, optional and in this order:
-    - Search in (a)ll namespaces
+    - Search in (a)ll namespaces or (k)ube-system namespace
+    - Search across (m)ultiple sibling clusters
     - Restrict to objects e(x)clusively holding a lease
     - Force selection using f(z)f or force (p)icking all
     - Choose an alternative output type:
@@ -956,17 +957,14 @@ def shellenv_cmd(
     - Choose (c)ontainers, or automatically pick a(l)l containers
     - Command-specific
         - logs: (f)ollow logs
-        - exec: detect and use (s)hell as the command
 
     \b
     Example alias usage:
     - kl -> kuba logs --guess
     - ke -> kuba exec --guess
     - klx -> kuba logs --leader --guess
-    - kexc -it -- zsh -> kuba exec --leader -it -- zsh
-    - klxf -> kuba logs --leader --guess --follow
-    - kexb -> kuba exec --leader --guess -it -- bash
-    - kexcs -> kuba exec --leader -it -- sh
+    - kexc -> kuba exec --leader
+    - klamlf -> kuba logs --all-namespaces --multi-cluster --all --follow
 
     Usage: source <(kuba shellenv [OPTIONS])
     """
