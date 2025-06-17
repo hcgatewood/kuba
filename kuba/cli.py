@@ -925,6 +925,8 @@ def shellenv_cmd(
         - (y)aml
         - (j)son
         - (f)x
+        - lo(g)s
+        - follow (l)ogs
         - lineage downward i.e. (c)hildren
         - lineage (u)pward
         - p(o)ds (only for nodes, shows pods on the node)
@@ -953,7 +955,7 @@ def shellenv_cmd(
     Alias modifiers, optional and in this order:
     - Search in (a)ll namespaces or (k)ube-system namespace
     - Search across (m)ultiple sibling clusters
-    - Restrict to objects e(x)clusively holding a lease
+    - Restrict to objects e(x)clusively holding a lease (via convenience heuristic)
     - Choose (c)ontainers, or automatically pick a(l)l containers
     - Command-specific
         - logs: (f)ollow logs
@@ -1777,6 +1779,7 @@ def _generic_kubectl_action(
         all_namespaces,
         label,
         output_fmt,
+        just_print,
     )
     log(f"cmds: {len(cmds)} total: {cmds}", debug)
 
@@ -2947,9 +2950,11 @@ def make_resources(
     if leader:
         lease_holders = get_lease_holders(kubectl, context, namespace, all_namespaces, debug)
         log(f"get_lease_holders: {lease_holders=}", debug)
-        if filtered_to_match := resources.filter(lambda r: r.name in lease_holders):
-            resources = filtered_to_match
-        elif filtered_to_prefix := resources.filter(lambda r: any([lease_holder.startswith(r.name) for lease_holder in lease_holders])):
+        # HACK: it's common to append a random suffix to the lease-requester's name, so this means lease-checking
+        # here becomes a heuristic
+        # if filtered_to_match := resources.filter(lambda r: (r.namespace, r.name) in lease_holders):
+        #     resources = filtered_to_match
+        if filtered_to_prefix := resources.filter(lambda r: any([holder[0] == r.namespace and holder[1].startswith(r.name) for holder in lease_holders])):
             resources = filtered_to_prefix
         else:
             resources = Resources([], "", None, cluster=context, namespace=namespace)
@@ -2995,7 +3000,7 @@ def get_containers(kubectl: str, pod: Resource, cquery: str, debug: bool) -> lis
     return containers
 
 
-def get_lease_holders(kubectl: str, context: str, namespace: str, all_namespaces: bool, debug: bool) -> list[str]:
+def get_lease_holders(kubectl: str, context: str, namespace: str, all_namespaces: bool, debug: bool) -> list[tuple[str, str]]:
     cmd = remove_empty(
         [
             kubectl,
@@ -3005,12 +3010,16 @@ def get_lease_holders(kubectl: str, context: str, namespace: str, all_namespaces
             f"--namespace={namespace}" if namespace else "",
             "--all-namespaces" if all_namespaces else "",
             "--no-headers",
-            "--output=custom-columns=HOLDER:.spec.holderIdentity",
+            "--output=custom-columns=NAMESPACE:.metadata.namespace,HOLDER:.spec.holderIdentity",
         ]
     )
     log(f"get_lease_holders: {cmd=}", debug)
     try:
-        leases = subprocess.check_output(cmd, text=True).strip().splitlines()
+        lines = subprocess.check_output(cmd, text=True).strip().splitlines()
+        leases = [tuple(line.split()) for line in lines if line.strip()]
+        if not all_namespaces:  # handle implicit empty namespace for single-namespace
+            leases = [("", holder) for _, holder in leases]
+        assert all(len(lease) == 2 for lease in leases), "lease output should be two columns: namespace and holder"
     except subprocess.CalledProcessError as e:
         raise make_click_exception(f"error fetching leases: {e}")
     return leases
@@ -3167,9 +3176,16 @@ def get_kubectl_generic_action_commands(
     all_namespaces: bool,
     label: str,
     output_fmt: str,
+    just_print: bool,
 ) -> Commands:
     cmds = []
-    for c, by_namespace in resources.by_cluster_by_namespace().items():
+    by_cluster_by_namespace = resources.by_cluster_by_namespace()
+
+    n_clusters = len(by_cluster_by_namespace)
+    if n_clusters > 1 and output_fmt in ("logs-follow",):
+        raise make_click_exception(f"can't use {output_fmt} output format with multiple clusters")
+
+    for c, by_namespace in by_cluster_by_namespace.items():
         for n, rs in by_namespace.items():
             cmds.append(
                 get_kubectl_generic_action_command(
@@ -3183,6 +3199,7 @@ def get_kubectl_generic_action_commands(
                     all_namespaces,
                     label,
                     output_fmt,
+                    just_print,
                 )
             )
     return Commands(cmds)
@@ -3199,6 +3216,7 @@ def get_kubectl_generic_action_command(
     all_namespaces: bool,
     label: str,
     output_fmt: str,
+    just_print: bool,
 ) -> Command:
     if output_fmt in ("parents", "children"):
         if not resources.names():
@@ -3218,20 +3236,22 @@ def get_kubectl_generic_action_command(
             ]
         )
     elif output_fmt in ("logs", "logs-follow"):
+        is_multi_pods = rtype.lower() in ("pod", "pods") and len(resources.names()) > 1
         if not resources.names():
             raise make_click_exception(f"can't specify less than 1 {rtype} for logs output type")
-        if len(resources.names()) > 1:
+        if len(resources.names()) > 1 and not is_multi_pods:
             raise make_click_exception(f"can't specify more than 1 {rtype} for logs output type")
         has_nofollow = "--no-follow" in ctx.args
         follow = False if has_nofollow else {"logs": False, "logs-follow": True}[output_fmt]
         should_no_follow = not has_nofollow and not follow
         has_since = "--since" in ctx.args
         should_since = follow and not has_since
+        rquery = stern_pods_regex(resources, just_print) if is_multi_pods else resources.names().pop()
         cmd = remove_empty(
             [
                 kubectl,
                 "stern",
-                resources.names().pop(),
+                rquery,
                 f"--namespace={namespace}" if namespace else "",
                 "--all-namespaces" if all_namespaces else "",
                 f"--context={cluster}" if cluster else "",
@@ -3317,16 +3337,13 @@ def get_kubectl_logs_command(
 
     # Multi-pod
     if len(pods) > 1:
-        pods_regex = f'^({"|".join([pod.name for pod in pods])})$'  # stern supports regex for multiple pods
-        if just_print:
-            pods_regex = f"'{pods_regex}'"  # HACK: if just printing for history, need to quote due to special characters
         log_cmd = remove_empty(
             [
                 kubectl,
                 "stern",
                 f"--namespace={ns}" if ns else "",
                 f"--context={cluster}" if cluster else "",
-                pods_regex,
+                stern_pods_regex(pods, just_print),
                 *ctx.args,
                 f"--since={since}" if since else "--since=1s",
                 "" if follow else "--no-follow",  # stern follows by default
@@ -3369,6 +3386,14 @@ def get_kubectl_logs_command(
             )
 
     return Command(log_cmd, ns, cluster)
+
+
+def stern_pods_regex(pods: Resources, just_print: bool) -> str:
+    """Stern supports regex for multiple pods: ^(pod1|pod2|pod3)$"""
+    r = f'^({"|".join([pod.name for pod in pods])})$'
+    if just_print:
+        r = f"'{r}'"  # HACK: if just printing for history, need to quote due to special characters
+    return r
 
 
 def get_kubectl_exec_command(ctx: click.Context, kubectl: str, pod: Resource, container: str, container_shell: str, debug: bool) -> Command:

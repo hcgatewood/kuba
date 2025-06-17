@@ -68,15 +68,14 @@ Commands:
 
 ```text
 $ kuba shellenv --help
-Usage: cli.py shellenv [OPTIONS]
+Usage: kuba shellenv [OPTIONS]
 
   Generate k-aliases and completions for easy kubectl resource access.
 
   E.g. kp for kubectl get pod.
 
-  Generated aliases all forward to kuba, which eventually forwards to kubectl,
-  including any kubectl-specific parameters. Passing kubectl arguments and
-  shell completion both have some rough edges.
+  Generated aliases all forward to kuba, which eventually forwards to kubectl, including any kubectl-specific
+  parameters. Passing kubectl arguments and shell completion both have some rough edges.
 
   GENERAL
 
@@ -113,6 +112,8 @@ Usage: cli.py shellenv [OPTIONS]
       - (y)aml
       - (j)son
       - (f)x
+      - lo(g)s
+      - follow (l)ogs
       - lineage downward i.e. (c)hildren
       - lineage (u)pward
       - p(o)ds (only for nodes, shows pods on the node)
@@ -138,7 +139,7 @@ Usage: cli.py shellenv [OPTIONS]
   Alias modifiers, optional and in this order:
   - Search in (a)ll namespaces or (k)ube-system namespace
   - Search across (m)ultiple sibling clusters
-  - Restrict to objects e(x)clusively holding a lease
+  - Restrict to objects e(x)clusively holding a lease (via convenience heuristic)
   - Choose (c)ontainers, or automatically pick a(l)l containers
   - Command-specific
       - logs: (f)ollow logs
@@ -153,20 +154,15 @@ Usage: cli.py shellenv [OPTIONS]
   Usage: source <(kuba shellenv [OPTIONS])
 
 Options:
-  --resources TEXT    Add or override resource mappings, formatted as e.g.
-                      p=pod,n=node. Can also set via KUBA_SHELLENV_RESOURCES
-                      env var.
-  --clusters TEXT     List of clusters to consider, formatted as e.g.
-                      k1=v1,k2=v2 (use '*' to match multiple clusters). Can
-                      also set via KUBA_CLUSTERS env var.
+  --resources TEXT    Add or override resource mappings, formatted as e.g. p=pod,n=node. Can also set via
+                      KUBA_SHELLENV_RESOURCES env var.
+  --clusters TEXT     List of clusters to consider, formatted as e.g. k1=v1,k2=v2 (use '*' to match multiple
+                      clusters). Can also set via KUBA_CLUSTERS env var.
   --shell [|zsh]      Override shell detection.
-  --kubectl TEXT      Name or path of the kubectl binary to use. Can also set
-                      via KUBA_KUBECTL env var.
+  --kubectl TEXT      Name or path of the kubectl binary to use. Can also set via KUBA_KUBECTL env var.
   --no-native         Don't include the default native resource mappings.
-  --no-resources      Don't include aliases and completions for resource-level
-                      commands.
-  --no-containers     Don't include aliases and completions for container-
-                      level commands.
+  --no-resources      Don't include aliases and completions for resource-level commands.
+  --no-containers     Don't include aliases and completions for container-level commands.
   --ssh-bastion TEXT  SSH bastion option to use with kuba ssh.
   --ssh-use-name      Use name option to use with kuba ssh.
   --list              Just list all resource aliases.
