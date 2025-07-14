@@ -1764,7 +1764,10 @@ def _generic_kubectl_action(
             raise make_click_exception(f"cannot use --sort-by with multiple distinct resources: {rtype} {resources.names()}")
 
     if early_print:
-        print_resources(resources, kubectl)
+        if output_fmt == "name":
+            print_color("\n".join([f"{WHITE}{n}{RESET}" for n in resources.names()]), kubectl)
+        else:
+            print_resources(resources, kubectl)
         return
 
     ctx.args = handle_overrides(ctx.args, rtype, len(resources), debug, output_fmt=output_fmt, label_columns=label_columns, sort_by=sort_by)
@@ -1783,12 +1786,7 @@ def _generic_kubectl_action(
     )
     log(f"cmds: {len(cmds)} total: {cmds}", debug)
 
-    listable_output_fmt = output_fmt in ("", "name", "wide")
-    print_clusters = len(resources.clusters()) > 1 and listable_output_fmt
-    print_namespaces = (len(resources.namespaces()) > 1 and listable_output_fmt) or (print_clusters and not all_namespaces)
-    cmds.run(
-        f"kubectl {action}", just_print, kubectl, print_namespaces=print_namespaces, print_clusters=print_clusters, must_single_command=must_single_command
-    )
+    cmds.run(f"kubectl {action}", just_print, kubectl, must_single_command=must_single_command)
 
 
 def get_clusters(kubectl: str, namespace: str, multi_cluster: bool, cluster_groups: ClusterGroups, debug: bool) -> tuple[list[str], str]:
@@ -1815,7 +1813,7 @@ def get_select(select: Optional[bool], action: str, output_fmt: str) -> Select:
     if action == "describe":
         return Select.YES
 
-    if output_fmt in ("", "wide"):
+    if output_fmt in ("", "wide", "name"):
         return Select.ALL
     if output_fmt in ("pods",):
         return Select.ONE
