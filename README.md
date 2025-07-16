@@ -1,6 +1,6 @@
 # Kuba
 
-The kuba-mazing kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](https://github.com/antonmedv/fx), [aliases](https://github.com/ahmetb/kubectl-aliases), and more!
+The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](https://github.com/antonmedv/fx), [aliases](https://github.com/ahmetb/kubectl-aliases), and more!
 
 <p align="center"><img src="https://raw.githubusercontent.com/hcgatewood/kuba/main/assets/logo_transparent.png" alt="Kuba logo" width="300"/></p>
 
