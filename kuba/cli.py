@@ -165,6 +165,8 @@ class Select(Enum):
         return self in (Select.YES, Select.ANY, Select.ONE)
 
     def with_one(self, one: bool) -> "Select":
+        if self == Select.ANY:
+            return self
         return Select.ONE if one else self
 
     def with_n_resources(self, n: int) -> "Select":
