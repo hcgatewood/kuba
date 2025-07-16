@@ -865,6 +865,7 @@ def cli():
 @click.option("--ssh-bastion", help="SSH bastion option to use with kuba ssh.")
 @click.option("--ssh-use-name", is_flag=True, help="Use name option to use with kuba ssh.")
 @click.option("--list", "list_resource_aliases", is_flag=True, help="Just list all resource aliases.")
+@click.option("--listq", "list_resource_aliases_query", default="", help="Same as --list, but filter for the query.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 def shellenv_cmd(
     rtypes: dict[str, str],
@@ -877,6 +878,7 @@ def shellenv_cmd(
     ssh_bastion: str,
     ssh_use_name: bool,
     list_resource_aliases: bool,
+    list_resource_aliases_query: str,
     debug: bool,
 ):
     """
@@ -970,9 +972,11 @@ def shellenv_cmd(
 
     Usage: source <(kuba shellenv [OPTIONS])
     """
-    if list_resource_aliases:
+    if list_resource_aliases or list_resource_aliases_query:
         all_rtypes = NATIVE_RTYPES | rtypes | {"e": "exec", "l": "log"}
         rtype_strs = sorted([f"{k}={v}" for k, v in all_rtypes.items()])
+        if list_resource_aliases_query:
+            rtype_strs = [s for s in rtype_strs if is_subseq(list_resource_aliases_query, s)]
         for s in rtype_strs:
             print(s)
         return
@@ -992,7 +996,7 @@ def shellenv_cmd(
 def shellenv_common(shell: str, kubectl: Optional[str], cluster_aliases: ClusterAliases, ssh_bastion: str, ssh_use_name: bool) -> list[str]:
     tpls_shared = [
         "export KUBA_KUBECTL={kubectl}" if kubectl else "",
-        "alias klst='kuba shellenv --list'",
+        'function klst {{ if [[ "$#" -gt 0 ]] ; then kuba shellenv --listq "$@" ; else kuba shellenv --list ; fi }}',
         "alias knsl='kuba ns --list'",
         "alias kctxl='kuba ctx --list'",
         "alias kapi='kuba api'",
