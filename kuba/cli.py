@@ -1140,6 +1140,8 @@ def shellenv_resources(rtypes: dict[str, str], shell: str, no_native: bool, debu
         tpls = tpls_aliases[:]
         if rtype == "node":
             tpls.append("alias k{char}{a}{m}{x}{z}o='kuba get {leader} {select} {all} {multi} --output=pods {rtype}'")
+        elif rtype == "pod":
+            tpls.append("alias k{char}{a}{m}{x}{z}o='kuba get {leader} {select} {all} {multi} --output=node {rtype}'")
         for tpl in tpls:
             for a, m, x, z in product(["", "a", "k"], ["", "m"], ["", "x"], ["", "z", "p"]):
                 all_ = {"": "", "a": "--all-namespaces", "k": "--namespace kube-system"}[a]
@@ -3489,7 +3491,7 @@ def handle_overrides(
 ) -> list[str]:
     log(f"handle_overrides before: {args=}, {rtype=}, {n_resources=}, {output_fmt=}, {label_columns=}, {sort_by=}", debug)
 
-    if output_fmt != "name":  # name is custom output format, uses custom columns
+    if output_fmt != "name":  # guard because name is custom output format => uses custom columns
         if label_columns:
             args = [f"--label-columns={label_columns}"] + args
         elif rtype == "node" and output_fmt != "pods":
@@ -3500,6 +3502,8 @@ def handle_overrides(
                 ]
             )
             args = [f"--label-columns={','.join(cols)}"] + args
+        elif rtype == "pod" and output_fmt == "node":
+            args = ["--output=custom-columns=NAME:.metadata.name,NODE:.spec.nodeName"] + args
 
     if sort_by:
         args = [f"--sort-by={sort_by}"] + args
