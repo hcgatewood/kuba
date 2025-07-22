@@ -72,12 +72,14 @@ FILENAME = __file__
 NATIVE_RTYPES = {
     "c": "configmap",
     "d": "deployment",
+    # NOTE: e reserved for exec
     "j": "job",
     # NOTE: l reserved for logs
     "m": "daemonset",
     "n": "node",
     "o": "cronjob",
     "p": "pod",
+    "q": "replicaset",
     "r": "secret",
     "s": "service",
     "x": "lease",
@@ -1116,20 +1118,7 @@ def shellenv_resources(rtypes: dict[str, str], shell: str, no_native: bool, debu
         "": [],
         "zsh": [tpl_zsh_alias],
     }[shell]
-    native_rtypes = {
-        "c": "configmap",
-        "d": "deployment",
-        "j": "job",
-        # NOTE: l reserved for logs
-        "m": "daemonset",
-        "n": "node",
-        "o": "cronjob",
-        "p": "pod",
-        "r": "secret",
-        "s": "service",
-        "x": "lease",
-    }
-    rtypes = rtypes if no_native else native_rtypes | rtypes  # selectively overrides default native rtypes
+    rtypes = rtypes if no_native else NATIVE_RTYPES | rtypes  # selectively overrides default native rtypes
 
     lines = []
 
