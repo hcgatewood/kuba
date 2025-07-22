@@ -3011,7 +3011,7 @@ def get_lease_holders(kubectl: str, context: str, namespace: str, all_namespaces
     log(f"get_lease_holders: {cmd=}", debug)
     try:
         lines = subprocess.check_output(cmd, text=True).strip().splitlines()
-        leases = [tuple(line.split()) for line in lines if line.strip()]
+        leases = [tuple(line.split()) for line in lines if len(line.split()) == 2]  # needs lease name + holder
         if not all_namespaces:  # handle implicit empty namespace for single-namespace
             leases = [("", holder) for _, holder in leases]
         assert all(len(lease) == 2 for lease in leases), "lease output should be two columns: namespace and holder"
