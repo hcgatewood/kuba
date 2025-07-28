@@ -34,9 +34,10 @@ from typing import (
 import click
 import click.shell_completion
 import yaml
+from coda import getenv_bool
 
-DEBUG = False
-TRACE = False
+DEBUG = getenv_bool("KUBA_DEBUG") or False
+TRACE = getenv_bool("KUBA_TRACE") or False
 
 BOLD = "\033[1m"
 ITALIC = "\033[3m"
@@ -572,11 +573,6 @@ compdef _{alias} {alias}
     subcommand = " ".join(subcommand)
     log(f"tpl_zsh_alias: {alias=}, {subcommand=}, {args=}", debug)
     return tpl.format(alias=alias, subcommand=subcommand, args=args)
-
-
-def environ_bool(var: str) -> bool:
-    """Get a boolean value from an environment variable."""
-    return os.getenv(var, "").lower() in ("1", "true", "yes")
 
 
 def get_shell() -> str:
@@ -1963,7 +1959,7 @@ def exec_cmd(
     default=os.getenv("KUBA_SSH_BASTION", ""),
     help="Add bastion host requirements by (regex of) context, formatted as e.g. *staging*=bastion-001,*prod*=bastion-002.",
 )
-@click.option("--use-name", is_flag=True, default=environ_bool("KUBA_SSH_USE_NAME"), help="Use node name for SSH instead of default address selection.")
+@click.option("--use-name", is_flag=True, default=getenv_bool("KUBA_SSH_USE_NAME"), help="Use node name for SSH instead of default address selection.")
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
 @click.option("--any", "pick_any", is_flag=True, help="Automatically select any ready worker node.")
 @click.option("--pod", is_flag=True, help="Choose a pod and ssh into its node.")

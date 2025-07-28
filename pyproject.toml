@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "kuba"
-version = "0.10.0"
+version = "0.11.0"
 description = "The kuba-mazing kubectl companion"
 authors = ["Hunter Gatewood <hgatewood@gmail.com>"]
 readme = "README.md"
@@ -11,6 +11,7 @@ kuba = "kuba.cli:cli"
 [tool.poetry.dependencies]
 python = "^3.12"
 click = "^8.0.0"
+hcgatewood_coda = "^0.5.0"
 pyyaml = "^6.0"
 
 [build-system]
