@@ -1641,7 +1641,6 @@ def get_cmd(
 @click.option("--namespace", "-n", default="", help="Namespace of the pod.")  # HACK: shadow
 @click.option("--all-namespaces", "-A", is_flag=True, help="List objects across all namespaces.")  # HACK: shadow
 @click.option("--selector", "-l", "label", help="Label to filter resources by.")  # HACK: shadow
-@click.option("--output", "-o", "output_fmt", help="Output format of the resource.")  # HACK: shadow
 @click.pass_context
 def describe_cmd(
     ctx: click.Context,
@@ -1659,7 +1658,6 @@ def describe_cmd(
     namespace: str,
     all_namespaces: bool,
     label: str,
-    output_fmt: str,
 ):
     """
     Shadow of `kubectl describe` but with optional fzf for resource selection.
@@ -1687,7 +1685,7 @@ def describe_cmd(
         namespace,
         all_namespaces,
         label,
-        output_fmt,
+        "describe",
     )
 
 
@@ -3479,7 +3477,7 @@ def handle_overrides(
     if output_fmt != "name":  # guard because name is custom output format => uses custom columns
         if label_columns:
             args = [f"--label-columns={label_columns}"] + args
-        elif rtype == "node" and output_fmt != "pods":
+        elif rtype == "node" and output_fmt not in ("describe", "pods"):
             cols = remove_empty(
                 [
                     "node.kubernetes.io/instance-type",
@@ -3492,7 +3490,7 @@ def handle_overrides(
 
     if sort_by:
         args = [f"--sort-by={sort_by}"] + args
-    elif rtype == "node" and n_resources <= 1:  # kubectl doesn't allow sorting when specifying multiple resources
+    elif rtype == "node" and output_fmt not in ("describe", "pods") and n_resources <= 1:  # kubectl doesn't allow sorting when specifying multiple resources
         args = ["--sort-by=.metadata.creationTimestamp"] + args
 
     log(f"handle_overrides after: {args=}, {rtype=}, {n_resources=}, {output_fmt=}, {label_columns=}, {sort_by=}", debug)
