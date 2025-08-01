@@ -309,7 +309,7 @@ class Resources(list[Resource]):
             for r in rs:
                 r.description = colorize(f"{CYAN}{c}{RESET}{SEP}{r.description}", kubectl=kubectl) if r.description else ""
 
-        return justify_cluster_resources(cluster_to_resources, header, indices, sentinel)
+        return Resources(list(chain.from_iterable(cluster_to_resources.values())), header, indices, sentinel=sentinel).justify()
 
     def __init__(
         self,
@@ -383,42 +383,33 @@ class Resources(list[Resource]):
     def by_cluster_by_namespace(self) -> dict[str, dict[str, "Resources"]]:
         return {c: rs.by_namespace() for c, rs in self.by_cluster().items()}
 
+    def justify(self, *, rectify: Callable[[list[str]], None] = None) -> "Resources":
+        """Justify resources from different clusters into a single table."""
+        if not self:
+            raise ValueError("expected at least one resource")
 
-def justify_cluster_resources(
-    cluster_to_resources: dict[str, "Resources"],
-    header: str,
-    indices: Resource.Indices,
-    sentinel: bool,
-    *,
-    rectify: Callable[[list[str]], None] = None,
-) -> Resources:
-    """Justify resources from different clusters into a single table."""
-    if not cluster_to_resources:
-        raise ValueError("expected at least one cluster")
+        r = re.compile(rf"\s{{{SEP_LEN},}}")  # e.g. \s{3,}
 
-    r = re.compile(rf"\s{{{SEP_LEN},}}")  # e.g. \s{3,}
+        rows = [self.header] + [r.description for r in self]
+        row_cols = [r.split(row) for row in rows]
 
-    resources = Resources(list(chain.from_iterable(cluster_to_resources.values())), header, indices, sentinel=sentinel)
-    rows = [header] + [r.description for r in resources]
-    row_cols = [r.split(row) for row in rows]
+        if rectify:
+            for row in row_cols:
+                rectify(row)
 
-    if rectify:
-        for row in row_cols:
-            rectify(row)
+        n_cols = len(row_cols[0])
+        if not all(len(row) == n_cols for row in row_cols):
+            raise ValueError(f"expected all rows to have {n_cols} columns, got: {[len(row) for row in row_cols]}")
 
-    n_cols = len(row_cols[0])
-    if not all(len(row) == n_cols for row in row_cols):
-        raise ValueError(f"expected all rows to have {n_cols} columns, got: {[len(row) for row in row_cols]}")
+        col_widths = [max(ansi_len(row[c]) for row in row_cols) for c in range(n_cols)]
+        justified_rows = [SEP.join(ansi_ljust(row[c], col_widths[c]) for c in range(n_cols)) for row in row_cols]
+        justified_header = justified_rows.pop(0)
 
-    col_widths = [max(ansi_len(row[c]) for row in row_cols) for c in range(n_cols)]
-    justified_rows = [SEP.join(ansi_ljust(row[c], col_widths[c]) for c in range(n_cols)) for row in row_cols]
-    justified_header = justified_rows.pop(0)
+        self.header = justified_header
+        for resource, justified_description in zip(self, justified_rows):
+            resource.description = justified_description
 
-    resources.header = justified_header
-    for resource, justified_description in zip(resources, justified_rows):
-        resource.description = justified_description
-
-    return resources
+        return self
 
 
 def get_any_val[T](it: Iterable[T]) -> T:
@@ -1513,7 +1504,7 @@ def api_cmd(ctx: click.Context, aquery: str, select: Optional[bool], one: bool, 
             raise make_click_exception("cannot use --command with --select for API resources")
         matching_apis = get_api_resources(kubectl, aquery, debug)
         apis = choose_resources("API resource", aquery, matching_apis, select)
-        apis = justify_cluster_resources({"": apis}, apis.header, apis.indices, apis.sentinel, rectify=rectify_api)
+        apis = apis.justify(rectify=rectify_api)
         if output_fmt == "name":
             print_color("\n".join([f"{WHITE}{n}{RESET}" for n in apis.names()]), kubectl)
         else:
@@ -1758,7 +1749,7 @@ def _generic_kubectl_action(
         if output_fmt == "name":
             print_color("\n".join([f"{WHITE}{n}{RESET}" for n in resources.names()]), kubectl)
         else:
-            print_resources(resources, kubectl)
+            print_resources(resources.justify(), kubectl)
         return
 
     ctx.args = handle_overrides(ctx.args, rtype, len(resources), debug, output_fmt=output_fmt, label_columns=label_columns, sort_by=sort_by)
