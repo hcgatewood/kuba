@@ -169,3 +169,12 @@ Options:
   --debug             Print debug info to stderr.
   -h, --help          Show this message and exit.
 ```
+
+## Related
+
+- Kubectl + fzf
+    - [kube-fzf](https://github.com/thecasualcoder/kube-fzf)
+    - [kubectl-fzf](https://github.com/bonnefoa/kubectl-fzf)
+- Kubectl aliases
+    - [fubectl](https://github.com/kubermatic/fubectl)
+    - [kubectl-aliases](https://github.com/ahmetb/kubectl-aliases)
