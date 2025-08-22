@@ -820,7 +820,7 @@ def complete_container(ctx: click.Context, _: click.Parameter, incomplete: str) 
         return []
     try:
         pod = Resource(ctx.params["pod"], ctx.params["namespace"], ctx.params["context"], "")
-        return get_containers(ctx.params.get("kubectl", "kubectl"), pod, incomplete, DEBUG)
+        return get_containers(ctx.params.get("kubectl", "kubectl"), pod, incomplete, True, DEBUG)
     except click.ClickException:
         return []
 
@@ -2744,7 +2744,7 @@ def hydrate_multi_pod_and_multi_container_queries(
         multi_containers = []
     else:
         pod = pods[0]
-        containers = get_containers(kubectl, pod, cquery, debug)
+        containers = get_containers(kubectl, pod, cquery, not guess, debug)
         multi_containers = choose_containers(pod, cquery, containers, guess, debug)
 
     return pods, multi_containers
@@ -2766,7 +2766,7 @@ def hydrate_pod_and_container_queries(
     pods = get_resources(kubectl, "", "pod", pquery, namespace, all_namespaces, clusters, label, select_fmt, debug, leader=leader)
     pod = choose_resource("pod", pquery, pods)
 
-    containers = get_containers(kubectl, pod, cquery, debug)
+    containers = get_containers(kubectl, pod, cquery, not guess, debug)
     container = choose_container(pod, cquery, containers, guess, debug)
 
     return pod, container
@@ -2952,7 +2952,7 @@ def make_resources(
     return resources
 
 
-def get_containers(kubectl: str, pod: Resource, cquery: str, debug: bool) -> list[str]:
+def get_containers(kubectl: str, pod: Resource, cquery: str, consider_init: bool, debug: bool) -> list[str]:
     # Handle containers separately since it's not a top-level resource
     ns, cluster = pod.namespace, pod.cluster
     cmd = remove_empty(
@@ -2963,10 +2963,10 @@ def get_containers(kubectl: str, pod: Resource, cquery: str, debug: bool) -> lis
             pod.name,
             f"--namespace={ns}" if ns else "",
             f"--context={cluster}" if cluster else "",
-            "--output=jsonpath={.spec.containers[*].name}",
+            f"--output=jsonpath={{.spec.containers[*].name}}{ '{.spec.initContainers[*].name}' if consider_init else ''}",
         ]
     )
-    log(f"get_containers: {cmd=}", debug)
+    log(f"get_containers: {cmd=}, {consider_init=}", debug)
     try:
         containers = subprocess.check_output(cmd, text=True).strip().split()  # containers aren't newline separated
         containers = [strip_ansi(c) for c in containers]
@@ -3333,7 +3333,7 @@ def get_kubectl_logs_command(
     # Single-pod
     else:
         pod = pods.pop()
-        if not check_containers_state(kubectl, pod, containers, debug):
+        if not check_containers_state(kubectl, pod, containers, debug, allow_terminated=True):
             raise make_click_exception(f"container(s) {','.join(containers)} not ready in pod {pod.name}")
 
         if len(containers) == 1:
@@ -3398,7 +3398,15 @@ def get_kubectl_exec_command(ctx: click.Context, kubectl: str, pod: Resource, co
     return Command(cmd, ns, cluster)
 
 
-def check_containers_state(kubectl: str, pod: Resource, containers: list[str], debug: bool, *, wanted_states: Optional[list] = None) -> bool:
+def check_containers_state(
+    kubectl: str,
+    pod: Resource,
+    containers: list[str],
+    debug: bool,
+    *,
+    allow_terminated: bool = False,
+    wanted_states: Optional[list] = None,
+) -> bool:
     if wanted_states is None:
         wanted_states = ["running", "terminated"]
 
@@ -3414,7 +3422,7 @@ def check_containers_state(kubectl: str, pod: Resource, containers: list[str], d
             "--output=json",
         ]
     )
-    log(f"check_container_ready: {cmd=}", debug)
+    log(f"check_container_ready: {cmd=}, {allow_terminated=}, {wanted_states=}", debug)
     try:
         pod_json = subprocess.check_output(cmd, text=True).strip()
     except subprocess.CalledProcessError as e:
@@ -3423,9 +3431,14 @@ def check_containers_state(kubectl: str, pod: Resource, containers: list[str], d
         pod_info = json.loads(pod_json)
     except json.JSONDecodeError as e:
         raise make_click_exception(f"check containers ready: decode pod JSON: {e}")
-    container_statuses = pod_info.get("status", {}).get("containerStatuses", [])
-    running_state = {c["name"] for c in container_statuses if any(c.get("state", {}).get(s) for s in wanted_states)}
-    return all(c in running_state for c in containers)
+    container_statuses = pod_info.get("status", {}).get("containerStatuses", []) + pod_info.get("status", {}).get("initContainerStatuses", [])
+    containers_in_loggable_state = {
+        c["name"]
+        for c in container_statuses
+        if any(c.get("state", {}).get(s) for s in wanted_states)  # currently in a wanted state => likely to have logs
+        or (allow_terminated and c.get("lastState", {}) is not None)  # has some last state => may have logs
+    }
+    return all(c in containers_in_loggable_state for c in containers)
 
 
 def container_scorer(pod: Resource, debug: bool) -> Callable[[str], float]:
