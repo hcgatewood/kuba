@@ -923,6 +923,8 @@ def shellenv_cmd(
         - lineage downward i.e. (c)hildren
         - lineage (u)pward
         - p(o)ds (only for nodes, shows pods on the node)
+        - n(o)de (only for pods, shows node the pod is on)
+        - containe(r)s (only for pods, shows containers in the pod)
 
     \b
     Example alias usage:
@@ -1117,6 +1119,7 @@ def shellenv_resources(rtypes: dict[str, str], shell: str, no_native: bool, debu
         if rtype == "node":
             tpls.append("alias k{char}{a}{m}{x}{z}o='kuba get {leader} {select} {all} {multi} --output=pods {rtype}'")
         elif rtype == "pod":
+            tpls.append("alias k{char}{a}{m}{x}{z}r='kuba get {leader} {select} {all} {multi} --output=containers {rtype}'")
             tpls.append("alias k{char}{a}{m}{x}{z}o='kuba get {leader} {select} {all} {multi} --output=node {rtype}'")
         for tpl in tpls:
             for a, m, x, z in product(["", "a", "k"], ["", "m"], ["", "x"], ["", "z", "p"]):
@@ -2963,7 +2966,7 @@ def get_containers(kubectl: str, pod: Resource, cquery: str, consider_init: bool
             pod.name,
             f"--namespace={ns}" if ns else "",
             f"--context={cluster}" if cluster else "",
-            f"--output=jsonpath={{.spec.containers[*].name}}{ '{.spec.initContainers[*].name}' if consider_init else ''}",
+            f"--output=jsonpath={{.spec.containers[*].name}}{' {.spec.initContainers[*].name}' if consider_init else ''}",
         ]
     )
     log(f"get_containers: {cmd=}, {consider_init=}", debug)
@@ -3246,6 +3249,8 @@ def get_kubectl_generic_action_command(
             raise make_click_exception(f"can't specify less than 1 {rtype} for pods output type")
         if len(resources.names()) > 1:
             raise make_click_exception(f"can't specify more than 1 {rtype} for pods output type")
+        if rtype not in ("node", "nodes"):
+            raise make_click_exception(f"pods output type is only supported for node resources, not {rtype}")
         if "--field-selector" in ctx.args:
             raise make_click_exception("can't use --field-selector for pods output type")
         cmd = remove_empty(
@@ -3255,6 +3260,27 @@ def get_kubectl_generic_action_command(
                 "pods",
                 f"--field-selector=spec.nodeName={resources.names().pop()}",
                 "--all-namespaces",
+                f"--context={cluster}" if cluster else "",
+                f"--selector={label}" if label else "",
+                *ctx.args,
+            ]
+        )
+    elif output_fmt in ("containers",):
+        if not resources.names():
+            raise make_click_exception(f"can't specify less than 1 {rtype} for containers output type")
+        if len(resources.names()) > 1:
+            raise make_click_exception(f"can't specify more than 1 {rtype} for containers output type")
+        if rtype not in ("pod", "pods"):
+            raise make_click_exception(f"containers output type is only supported for pod resources, not {rtype}")
+        cmd = remove_empty(
+            [
+                kubectl,
+                "get",
+                "pods",
+                resources.names().pop(),
+                "--output=jsonpath={range .spec.containers[*]}{.name}{'\\n'}{end}",
+                "--no-headers",
+                f"--namespace={namespace}" if namespace else "",
                 f"--context={cluster}" if cluster else "",
                 f"--selector={label}" if label else "",
                 *ctx.args,
