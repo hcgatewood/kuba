@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "kuba"
-version = "0.15.0"
+version = "0.16.0"
 description = "The kuba-mazing kubectl companion"
 authors = ["Hunter Gatewood <hgatewood@gmail.com>"]
 readme = "README.md"

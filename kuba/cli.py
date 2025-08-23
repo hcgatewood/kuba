@@ -16,6 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import Enum
+from functools import lru_cache
 from itertools import chain, product
 from pathlib import Path
 from types import FrameType
@@ -25,6 +26,7 @@ from typing import (
     Callable,
     Iterable,
     Iterator,
+    NamedTuple,
     Optional,
     Union,
     cast,
@@ -918,6 +920,7 @@ def shellenv_cmd(
         - (y)aml
         - (j)son
         - (f)x
+        - (e)vents
         - lo(g)s
         - follow (l)ogs
         - lineage downward i.e. (c)hildren
@@ -1087,6 +1090,7 @@ def shellenv_resources(rtypes: dict[str, str], shell: str, no_native: bool, debu
         "alias k{char}{a}{m}{x}{z}w='kuba get {leader} {select} {all} {multi} --output=wide {rtype}'",
         "alias k{char}{a}{m}{x}{z}y='kuba get {leader} {select} {all} {multi} --output=yaml {rtype}'",
         "alias k{char}{a}{m}{x}{z}j='kuba get {leader} {select} {all} {multi} --output=json {rtype}'",
+        "alias k{char}{a}{m}{x}{z}e='kuba get {leader} {select} {all} {multi} --output=events {rtype}'",
         "alias k{char}{a}{m}{x}{z}c='kuba get {leader} {select} {all} {multi} --output=children {rtype}'",
         "alias k{char}{a}{m}{x}{z}u='kuba get {leader} {select} {all} {multi} --output=parents {rtype}'",
         "alias k{char}{a}{m}{x}{z}g='kuba get {leader} {select} {all} {multi} --output=logs {rtype}'",
@@ -1768,6 +1772,7 @@ def _generic_kubectl_action(
         label,
         output_fmt,
         just_print,
+        debug,
     )
     log(f"cmds: {len(cmds)} total: {cmds}", debug)
 
@@ -3160,6 +3165,7 @@ def get_kubectl_generic_action_commands(
     label: str,
     output_fmt: str,
     just_print: bool,
+    debug: bool,
 ) -> Commands:
     cmds = []
     by_cluster_by_namespace = resources.by_cluster_by_namespace()
@@ -3183,6 +3189,7 @@ def get_kubectl_generic_action_commands(
                     label,
                     output_fmt,
                     just_print,
+                    debug,
                 )
             )
     return Commands(cmds)
@@ -3200,6 +3207,7 @@ def get_kubectl_generic_action_command(
     label: str,
     output_fmt: str,
     just_print: bool,
+    debug: bool,
 ) -> Command:
     if output_fmt in ("parents", "children"):
         if not resources.names():
@@ -3283,6 +3291,25 @@ def get_kubectl_generic_action_command(
                 f"--namespace={namespace}" if namespace else "",
                 f"--context={cluster}" if cluster else "",
                 f"--selector={label}" if label else "",
+                *ctx.args,
+            ]
+        )
+    elif output_fmt in ("events",):
+        if not resources.names():
+            raise make_click_exception(f"can't specify less than 1 {rtype} for events output type")
+        if len(resources.names()) > 1:
+            raise make_click_exception(f"can't specify more than 1 {rtype} for events output type")
+        cmd = remove_empty(
+            [
+                kubectl,
+                "get",
+                "events",
+                f"--field-selector=involvedObject.kind={rtype_to_kind(rtype, cluster, debug)},involvedObject.name={resources.names().pop()}",
+                f"--namespace={namespace}" if namespace else "",
+                "--all-namespaces" if all_namespaces else "",
+                f"--context={cluster}" if cluster else "",
+                "--sort-by=.metadata.creationTimestamp",
+                "" if sys.stdout.isatty() else "--no-headers",
                 *ctx.args,
             ]
         )
@@ -3573,6 +3600,66 @@ def color(kubectl: str, *, plain: bool = False) -> str:
 
 def should_color(kubectl: str) -> bool:
     return not kubectl or kubectl.endswith("kubecolor")
+
+
+class APIResource(NamedTuple):
+    singular: str
+    plural: str
+    kind: str
+
+    @staticmethod
+    def from_line(line: str) -> "APIResource":
+        """
+        Parse a line from `kubectl api-resources` output.
+
+        Line format:
+        0. Name (plural, lowercase)
+        1. Shortnames [optional]
+        2. APIVersion
+        3. Namespaced
+        4. Kind (singular, capital-cased)
+        """
+        parts = line.split()
+        if len(parts) < 4:
+            raise ValueError(f"invalid api-resource line: {line}")
+        elif len(parts) == 4:
+            parts.insert(1, "-")  # insert placeholder for shortnames
+        singular = parts[4].lower()
+        plural = parts[0].lower()  # lower just to be extra-safe
+        kind = parts[4]
+        return APIResource(singular, plural, kind)
+
+    def is_rtype(self, rtype: str) -> bool:
+        return rtype.lower() in (self.singular, self.plural)
+
+
+def rtype_to_kind(rtype: str, context: str, debug: bool) -> str:
+    """Canonicalize a resource type to its kind."""
+    log(f"rtype_to_kind: {rtype=}", debug)
+    rtype = rtype.lower()
+    for res in make_api_resources("kubectl", context, debug):
+        if res.is_rtype(rtype):
+            return res.kind
+    raise make_click_exception(f"unknown resource type: {rtype}")
+
+
+@lru_cache(maxsize=1)
+def make_api_resources(kubectl: str, context: str, debug: bool) -> list[APIResource]:
+    cmd = remove_empty(
+        [
+            kubectl,
+            f"--context={context}" if context else "",
+            "api-resources",
+            "--no-headers",
+        ]
+    )
+    log(f"make_api_resources: {cmd=}", debug)
+    try:
+        stdout = subprocess.check_output(cmd, text=True).strip()
+        resources = [APIResource.from_line(line) for line in stdout.splitlines() if line]
+    except subprocess.CalledProcessError as e:
+        raise make_click_exception(f"error fetching api-resources: {e}")
+    return resources
 
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")

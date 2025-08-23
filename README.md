@@ -112,11 +112,14 @@ Usage: kuba shellenv [OPTIONS]
       - (y)aml
       - (j)son
       - (f)x
+      - (e)vents
       - lo(g)s
       - follow (l)ogs
       - lineage downward i.e. (c)hildren
       - lineage (u)pward
       - p(o)ds (only for nodes, shows pods on the node)
+      - n(o)de (only for pods, shows node the pod is on)
+      - containe(r)s (only for pods, shows containers in the pod)
 
   Example alias usage:
   - kp -> kuba get pod
@@ -166,6 +169,7 @@ Options:
   --ssh-bastion TEXT  SSH bastion option to use with kuba ssh.
   --ssh-use-name      Use name option to use with kuba ssh.
   --list              Just list all resource aliases.
+  --listq TEXT        Same as --list, but filter for the query.
   --debug             Print debug info to stderr.
   -h, --help          Show this message and exit.
 ```
