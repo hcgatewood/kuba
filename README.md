@@ -37,7 +37,7 @@ source <(kuba shellenv --kubectl kubecolor)  # omit --kubectl kubecolor if you h
 
 ## Usage
 
-Start by using `kuba get` and `kuba describe` as a ~drop-in replacements for `kubectl get` and `kubectl describe`. Then try a few examples from the overview video, or check out the commands below.
+Start by using `kuba get` and `kuba describe` as ~drop-in replacements for `kubectl get` and `kubectl describe`. Then try a few examples from the overview video, or check out the commands below.
 
 ### Help pages
 
