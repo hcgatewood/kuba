@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Kuba is the kuba-mazing kubectl companion.
+Kuba is the magical kubectl companion.
 
 Kuba provides a user-friendly interface to a mostly read-only subset of kubectl commands.
 """
@@ -135,8 +135,13 @@ if TRACE:
     sys.setprofile(trace_fn)
 
 
-def make_click_exception(msg: str) -> click.ClickException:
-    return click.ClickException(colorize(f"{RED}{msg}{RESET}", out="stderr"))
+class ColorizedClickException(click.ClickException):
+    def __init__(self, msg: str):
+        super().__init__(colorize(f"{RED}{msg}{RESET}", out="stderr"))
+
+
+class NoMatchException(ColorizedClickException):
+    pass
 
 
 PAIRS = (
@@ -290,7 +295,7 @@ class Resources(list[Resource]):
         )
 
     @classmethod
-    def from_clusters(cls, cluster_to_resources: dict[str, "Resources"], kubectl: str) -> "Resources":
+    def from_clusters(cls, cluster_to_resources: dict[str, "Resources"], kubectl: str, debug: bool) -> "Resources":
         if not cluster_to_resources:
             raise ValueError("expected at least one cluster")
         if len(cluster_to_resources) == 1:
@@ -311,7 +316,7 @@ class Resources(list[Resource]):
             for r in rs:
                 r.description = colorize(f"{CYAN}{c}{RESET}{SEP}{r.description}", kubectl=kubectl) if r.description else ""
 
-        return Resources(list(chain.from_iterable(cluster_to_resources.values())), header, indices, sentinel=sentinel).justify()
+        return Resources(list(chain.from_iterable(cluster_to_resources.values())), header, indices, sentinel=sentinel).justify(debug)
 
     def __init__(
         self,
@@ -385,14 +390,14 @@ class Resources(list[Resource]):
     def by_cluster_by_namespace(self) -> dict[str, dict[str, "Resources"]]:
         return {c: rs.by_namespace() for c, rs in self.by_cluster().items()}
 
-    def justify(self, *, rectify: Callable[[list[str]], None] = None) -> "Resources":
+    def justify(self, debug: bool, *, rectify: Callable[[list[str]], None] = None) -> "Resources":
         """Justify resources from different clusters into a single table."""
         if not self:
             raise ValueError("expected at least one resource")
 
         r = re.compile(rf"\s{{{SEP_LEN},}}")  # e.g. \s{3,}
 
-        rows = [self.header] + [r.description for r in self]
+        rows = [self.header] + [r.description.strip() for r in self]
         row_cols = [r.split(row) for row in rows]
 
         if rectify:
@@ -401,6 +406,8 @@ class Resources(list[Resource]):
 
         n_cols = len(row_cols[0])
         if not all(len(row) == n_cols for row in row_cols):
+            for idx, row in enumerate(row_cols):
+                log(f"row {idx}: {row}", debug)
             raise ValueError(f"expected all rows to have {n_cols} columns, got: {[len(row) for row in row_cols]}")
 
         col_widths = [max(ansi_len(row[c]) for row in row_cols) for c in range(n_cols)]
@@ -428,7 +435,7 @@ def get_any_val[T](it: Iterable[T]) -> T:
 
 def get_only_val[T](it: Iterable[T]) -> T:
     """
-    Get the value that is repeated in an iterable.
+    Get the only value from an iterable.
 
     Raise an exception if there is not exactly one repeated value, or if the iterable is empty.
     """
@@ -471,7 +478,7 @@ class Command(list):
                 subprocess.run(self, check=True)
         except subprocess.CalledProcessError as e:
             if raise_errs:
-                raise make_click_exception(f"{err_msg or 'failed to run command'}: {e}")
+                raise ColorizedClickException(f"{err_msg or 'failed to run command'}: {e}")
         return None
 
     def print(self):
@@ -498,11 +505,11 @@ class Commands(list[Command]):
         stderr_only: bool = False,
     ):
         if not self:
-            raise make_click_exception("no commands generated")
+            raise ColorizedClickException("no commands generated")
         n_namespaces = len(self.namespaces())
         n_clusters = len(self.clusters())
         if must_single_command and (n_namespaces > 1 or n_clusters > 1):
-            raise make_click_exception(
+            raise ColorizedClickException(
                 f"generated {len(self)} commands due to {n_namespaces} namespaces and/or {n_clusters} clusters, won't run with more than 1 due to {must_single_command}"
             )
         if just_print:
@@ -522,7 +529,7 @@ class Commands(list[Command]):
 
     def print(self):
         if len(self) > 1:
-            raise make_click_exception(
+            raise ColorizedClickException(
                 f"generated {len(self)} commands under {len(self.clusters())} clusters and {len(self.namespaces())} namespaces, won't print with more than 1 command"
             )
         self[0].print()
@@ -829,7 +836,7 @@ def complete_container(ctx: click.Context, _: click.Parameter, incomplete: str) 
 
 @click.group(context_settings=dict(help_option_names=["-h", "--help"], max_content_width=120))
 def cli():
-    """The kuba-mazing kubectl companion."""
+    """The magical kubectl companion."""
     pass
 
 
@@ -1072,7 +1079,7 @@ def shellenv_kuba(shell: str) -> list[str]:
 def kuba_completion_lines(shell: str) -> list[str]:
     completion_cls = click.shell_completion.get_completion_class(shell)
     if not completion_cls:
-        raise make_click_exception(f"unsupported shell '{shell}'")
+        raise ColorizedClickException(f"unsupported shell '{shell}'")
     completion = completion_cls(click.Command("kuba", dict()), dict(), "kuba", "_KUBA_COMPLETE")
     return completion.source().splitlines()
 
@@ -1238,7 +1245,7 @@ def get_kfunc_names(lines: list[str]) -> list[str]:
 @click.pass_context
 def ifne_cmd(ctx: click.Context):
     """
-    Shadow of `ifne` for running a command only if stdin is non-empty.
+    Shadows ifne to run a command only if stdin is non-empty.
 
     COMMAND is the command to run if stdin is non-empty.
 
@@ -1260,11 +1267,11 @@ def ifne_cmd(ctx: click.Context):
     except BrokenPipeError:
         return  # e.g. if command is head
     except FileNotFoundError:
-        raise make_click_exception(f"command '{cmd[0]}' not found")
+        raise ColorizedClickException(f"command '{cmd[0]}' not found")
     except PermissionError:
-        raise make_click_exception(f"permission denied running command '{cmd}'")
+        raise ColorizedClickException(f"permission denied running command '{cmd}'")
     except OSError as e:
-        raise make_click_exception(f"failed running command '{cmd}': {e}")
+        raise ColorizedClickException(f"failed running command '{cmd}': {e}")
 
 
 def get_stdin() -> Optional[Iterator[bytes]]:
@@ -1292,7 +1299,7 @@ def convert_returncode(sig: int) -> int:
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 def ns_cmd(nquery: str, just_list: bool, kubectl: str, try_print: bool, debug: bool):
     """
-    Shadow of `kubens` for namespace switching.
+    Enhances kubens.
 
     NAMESPACE is a namespace name or query.
 
@@ -1329,7 +1336,7 @@ def get_namespace(kubectl: str, debug: bool) -> str:
     try:
         return subprocess.check_output(cmd, text=True).strip()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching current namespace: {e}")
+        raise ColorizedClickException(f"error fetching current namespace: {e}")
 
 
 @cli.command(name="ctx")
@@ -1345,7 +1352,7 @@ def get_namespace(kubectl: str, debug: bool) -> str:
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 def ctx_cmd(xquery: str, just_list: bool, keep_ns: bool, force_keep_ns: bool, cluster_groups: ClusterGroups, kubectl: str, try_print: bool, debug: bool):
     """
-    Shadow of `kubectx` for context switching.
+    Enhances kubectx.
 
     CONTEXT is a context name or query.
 
@@ -1407,7 +1414,7 @@ def get_contexts(kubectl: str, xquery: str, debug: bool) -> Resources:
     try:
         stdout_lines = subprocess.check_output(cmd, text=True).strip().splitlines()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching resources: {e}")
+        raise ColorizedClickException(f"error fetching resources: {e}")
     return make_resources(kubectl, "", "context", xquery, stdout_lines, "", False, False, debug, indices=(1, -1, -1))  # HACK: contexts aren't really resources
 
 
@@ -1417,7 +1424,7 @@ def get_context(kubectl: str, debug: bool) -> str:
     try:
         return subprocess.check_output(cmd, text=True).strip()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching current context: {e}")
+        raise ColorizedClickException(f"error fetching current context: {e}")
 
 
 @cli.command(name="cluster")
@@ -1428,7 +1435,7 @@ def get_context(kubectl: str, debug: bool) -> str:
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 def cluster_cmd(xquery: str, nquery: str, kubectl: str, try_print: bool, debug: bool):
     """
-    Shadow of `kubectx` and `kubens` for all-in-one switching between logical clusters.
+    Combines kubectx + kubens for all-in-one switching between clusters.
 
     CONTEXT is a context name or query.
     NAMESPACE is a namespace name or query.
@@ -1474,6 +1481,92 @@ def cluster_cmd(xquery: str, nquery: str, kubectl: str, try_print: bool, debug: 
     )
 
 
+PartialOutputType = click.Choice(
+    [
+        "name",
+        "wide",
+    ],
+    case_sensitive=False,
+)
+
+FullOutputType = click.Choice(
+    [
+        "describe",
+        "name",
+        "wide",
+        "yaml",
+        "json",
+        "fx",
+        "events",
+        "logs",
+        "logs-follow",
+        "children",
+        "parents",
+        "pods",  # only for nodes
+        "node",  # only for pods
+        "containers",  # only for pods
+    ],
+    case_sensitive=False,
+)
+
+
+@cli.command(name="hostname")
+@click.argument("hquery", metavar="QUERY", shell_complete=complete_pod)
+@click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
+@click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
+def hostname_cmd(hquery: str, kubectl: str, debug: bool):
+    """
+    Convert between node names and hostnames.
+
+    - If passed a node name (can be fuzzy) => print hostname
+    - If passed a hostname (must be exact) => print node name
+
+    Usage: kuba hostname QUERY
+    """
+    log(f"args: {hquery=}", debug)
+
+    log("try as node name", debug)
+    try:
+        nodes = get_resources(kubectl, "", "node", hquery, "", False, [], "", "", debug, do_warn=False)
+        if nodes:
+            node = choose_resource("node", hquery, nodes)
+            print_hostname_of_node(kubectl, node.name, debug)
+            return
+    except NoMatchException:
+        pass
+
+    log("try as hostname label", debug)
+    try:
+        nodes = get_resources(kubectl, "", "node", "", "", False, [], f"kubernetes.io/hostname={hquery}", "", debug, do_warn=False)
+        if nodes:
+            print_color("\n".join([f"{WHITE}{n}{RESET}" for n in nodes.names()]), kubectl)
+            return
+    except NoMatchException:
+        pass
+
+    raise ColorizedClickException(f"no node name or hostname matching '{hquery}'")
+
+
+def print_hostname_of_node(kubectl: str, node_name: str, debug: bool):
+    # HACK: manually run the cmd then print its output to standardize presence of trailing newline
+    cmd = [
+        kubectl,
+        "get",
+        "node",
+        node_name,
+        "--no-headers",
+        "--output=jsonpath={.metadata.labels.kubernetes\\.io/hostname}",
+    ]
+    log(f"print_hostname_of_node: {cmd=}", debug)
+    try:
+        hostnames = subprocess.check_output(cmd, text=True).strip().splitlines()
+        if not hostnames:
+            raise ColorizedClickException(f"node '{node_name}' has no hostname label")
+        print_color(f"{WHITE}{hostnames[0]}{RESET}", kubectl)
+    except subprocess.CalledProcessError as e:
+        raise ColorizedClickException(f"error fetching hostname for node '{node_name}': {e}")
+
+
 @cli.command(name="api", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.argument("aquery", metavar="TYPE", required=False, default="", shell_complete=complete_rtype)
 @click.option("--select/--no-select", default=None, help="Force fzf selection when multiple resources are output.")
@@ -1481,11 +1574,11 @@ def cluster_cmd(xquery: str, nquery: str, kubectl: str, try_print: bool, debug: 
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 @click.option("--command", "just_print", is_flag=True, help="Just print the final command that would have been run.")
-@click.option("--output", "-o", "output_fmt", help="Output format of the resource.")  # HACK: shadow
+@click.option("--output", "-o", "output_fmt", type=PartialOutputType, help="Output format of the resource.")  # HACK: shadow
 @click.pass_context
 def api_cmd(ctx: click.Context, aquery: str, select: Optional[bool], one: bool, kubectl: str, debug: bool, just_print: bool, output_fmt: str):
     """
-    Shadow of `kubectl api-resources` but with optional fzf for resource selection.
+    Enhances kubectl api-resources.
 
     TYPE is a resource type or query, e.g. pod, node, deployment.
 
@@ -1508,10 +1601,10 @@ def api_cmd(ctx: click.Context, aquery: str, select: Optional[bool], one: bool, 
         select = Select.YES if select else Select.ALL
         select = select.with_one(one)
         if just_print:
-            raise make_click_exception("cannot use --command with --select for API resources")
+            raise ColorizedClickException("cannot use --command with --select for API resources")
         matching_apis = get_api_resources(kubectl, aquery, debug)
         apis = choose_resources("API resource", aquery, matching_apis, select)
-        apis = apis.justify(rectify=rectify_api)
+        apis = apis.justify(debug, rectify=rectify_api)
         if output_fmt == "name":
             print_color("\n".join([f"{WHITE}{n}{RESET}" for n in apis.names()]), kubectl)
         else:
@@ -1520,9 +1613,9 @@ def api_cmd(ctx: click.Context, aquery: str, select: Optional[bool], one: bool, 
         return
 
     if one:
-        raise make_click_exception("cannot use --one without --select for API resources")
+        raise ColorizedClickException("cannot use --one without --select for API resources")
     cmd = get_api_resources_command(ctx, kubectl, debug, output_fmt)
-    log(f"cmd: {len(cmd)} total: {cmd}", debug)
+    log(f"api_cmd: {cmd=}", debug)
     cmd.run(just_print, f"kubectl api-resources")
 
 
@@ -1532,7 +1625,7 @@ def get_api_resources(kubectl: str, aquery: str, debug: bool) -> Resources:
     try:
         stdout_lines = subprocess.check_output(cmd, text=True).strip().splitlines()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching API resources: {e}")
+        raise ColorizedClickException(f"error fetching API resources: {e}")
     return make_resources(kubectl, "", "API resource", aquery, stdout_lines, "", False, False, debug)  # HACK: API resources aren't really resources
 
 
@@ -1566,7 +1659,7 @@ def get_api_resources_command(ctx: click.Context, kubectl: str, debug: bool, out
 @click.option("--namespace", "-n", default="", help="Namespace of the pod.")  # HACK: shadow
 @click.option("--all-namespaces", "-A", is_flag=True, help="List objects across all namespaces.")  # HACK: shadow
 @click.option("--selector", "-l", "label", help="Label to filter resources by.")  # HACK: shadow
-@click.option("--output", "-o", "output_fmt", help="Output format of the resource.")  # HACK: shadow
+@click.option("--output", "-o", "output_fmt", type=FullOutputType, help="Output format of the resource.")  # HACK: shadow
 @click.option("--label-columns", "-L", help="Comma-separated list of labels to display as columns.")  # HACK: shadow
 @click.option("--sort-by", help="Specify the field to sort by.")  # HACK: shadow
 @click.pass_context
@@ -1591,7 +1684,7 @@ def get_cmd(
     sort_by: str,
 ):
     """
-    Shadow of `kubectl get` but with optional fzf for resource selection.
+    Enhances kubectl get.
 
     TYPE is a resource type, e.g. pod, node, deployment.
     RESOURCE is a resource name or query.
@@ -1658,7 +1751,7 @@ def describe_cmd(
     label: str,
 ):
     """
-    Shadow of `kubectl describe` but with optional fzf for resource selection.
+    Enhances kubectl describe.
 
     TYPE is a resource type, e.g. pod, node, deployment.
     RESOURCE is a resource name or query.
@@ -1723,7 +1816,7 @@ def _generic_kubectl_action(
     # UX: allow directly specifying a label query
     if len(rqueries) == 1 and "=" in rqueries[0]:
         if label:
-            raise make_click_exception("cannot use --label with a single resource query containing '='")
+            raise ColorizedClickException("cannot use --label with a single resource query containing '='")
         label = rqueries.pop()
     log(f"adjusted rqueries: {rtype=}, {rqueries=}, {label=}", debug)
 
@@ -1750,13 +1843,13 @@ def _generic_kubectl_action(
         return
     if len(resources) > 1:
         if sort_by:
-            raise make_click_exception(f"cannot use --sort-by with multiple distinct resources: {rtype} {resources.names()}")
+            raise ColorizedClickException(f"cannot use --sort-by with multiple distinct resources: {rtype} {resources.names()}")
 
     if early_print:
         if output_fmt == "name":
             print_color("\n".join([f"{WHITE}{n}{RESET}" for n in resources.names()]), kubectl)
         else:
-            print_resources(resources.justify(), kubectl)
+            print_resources(resources.justify(debug), kubectl)
         return
 
     ctx.args = handle_overrides(ctx.args, rtype, len(resources), debug, output_fmt=output_fmt, label_columns=label_columns, sort_by=sort_by)
@@ -1787,10 +1880,10 @@ def get_clusters(kubectl: str, namespace: str, multi_cluster: bool, cluster_grou
     context = get_context(kubectl, debug)
     clusters = list(cluster_groups.get(context, []))
     if not clusters:
-        raise make_click_exception(f"no sibling clusters found for current context '{context}'")
+        raise ColorizedClickException(f"no sibling clusters found for current context '{context}'")
     namespace = namespace or get_namespace(kubectl, debug)
     if not namespace:
-        raise make_click_exception(f"no namespace found for current context '{context}'")
+        raise ColorizedClickException(f"no namespace found for current context '{context}'")
     return clusters, namespace
 
 
@@ -1859,7 +1952,7 @@ def logs_cmd(
     follow: bool,
 ):
     """
-    Shadow of `kubectl logs` but with optional fzf for pod and container selection.
+    Enhances kubectl logs.
 
     POD is a pod name or query.
     CONTAINER is a container name or query.
@@ -1877,7 +1970,7 @@ def logs_cmd(
         since = "1s" if follow else "1h"
 
     if guess and all_containers:
-        raise make_click_exception("cannot use --guess with --all")
+        raise ColorizedClickException("cannot use --guess with --all")
 
     clusters, namespace = get_clusters(kubectl, namespace, multi_cluster, cluster_groups, debug)
     pods, containers = hydrate_multi_pod_and_multi_container_queries(
@@ -1922,7 +2015,7 @@ def exec_cmd(
     label: str,
 ):
     """
-    Shadow of `kubectl exec` but with optional fzf for pod and container selection.
+    Enhances kubectl exec.
 
     POD is a pod name or query.
     CONTAINER is a container name or query.
@@ -1977,7 +2070,7 @@ def ssh_cmd(
     label: str,
 ):
     """
-    Shadow of `ssh` for connecting to a node, with optional fzf for node selection.
+    SSH into a node.
 
     \b
     Tries to get node IP with the following priority:
@@ -2001,7 +2094,7 @@ def ssh_cmd(
     if pod:
         pods = hydrate_resource_queries("pod", [query], "", False, [], label, False, select, True, select_fmt, kubectl, debug, do_warn=False)
         if not pods:
-            raise make_click_exception(f"no pods found for query '{query}'" if query else "no pods found")
+            raise ColorizedClickException(f"no pods found for query '{query}'" if query else "no pods found")
         node_name = get_pod_node_name(kubectl, pods.pop(), debug)
     else:
         node = hydrate_resource_queries("node", [query], "", False, [], label, False, select, True, select_fmt, kubectl, debug).pop()
@@ -2104,28 +2197,28 @@ def sched_cmd(
     log(f"args: {pquery=}, {ctx.args=}", debug)
 
     if filter_fail and filter_pass:
-        raise make_click_exception("cannot use --pass and --fail at the same time")
+        raise ColorizedClickException("cannot use --pass and --fail at the same time")
 
     if pod_path:
         if not pod_path.exists():
-            raise make_click_exception(f"file {pod_path.name} does not exist")
+            raise ColorizedClickException(f"file {pod_path.name} does not exist")
         try:
             pod = yaml.load(pod_path.read_text(), Loader=yaml.Loader)
         except yaml.YAMLError as e:
-            raise make_click_exception(f"error loading pod YAML: {e}")
+            raise ColorizedClickException(f"error loading pod YAML: {e}")
     else:
         pod = hydrate_resource_queries("pods", [pquery], namespace, all_namespaces, [], label, leader, Select.YES, True, "", kubectl, debug).pop()
         pod_json = get_for_cluster(kubectl, "", "pod", pod.name, namespace, all_namespaces, label, "json", debug, plain=True, exact=True)
         if not pod_json:
-            raise make_click_exception(f"no pods found for {pquery}")
+            raise ColorizedClickException(f"no pods found for {pquery}")
         try:
             pod = json.loads(strip_ansi(pod_json))
         except json.JSONDecodeError as e:
-            raise make_click_exception(f"error loading pod JSON: {e}")
+            raise ColorizedClickException(f"error loading pod JSON: {e}")
     if not isinstance(pod, dict):
-        raise make_click_exception(f"pod JSON/YAML is not a valid document")
+        raise ColorizedClickException(f"pod JSON/YAML is not a valid document")
     if not pod.get("kind") == "Pod":
-        raise make_click_exception(f"pod JSON/YAML is not a Pod")
+        raise ColorizedClickException(f"pod JSON/YAML is not a Pod")
 
     pods = None
     namespaces = dict()
@@ -2134,34 +2227,34 @@ def sched_cmd(
         try:
             pods = json.loads(pods_json)
         except json.JSONDecodeError as e:
-            raise make_click_exception(f"error loading pods JSON: {e}")
+            raise ColorizedClickException(f"error loading pods JSON: {e}")
         if not isinstance(pods, dict):
-            raise make_click_exception("pods JSON does not contain a valid document")
+            raise ColorizedClickException("pods JSON does not contain a valid document")
         pods = pods.get("items", [])
         if not isinstance(pods, list):
-            raise make_click_exception("pods JSON .items does not contain a list of pods")
+            raise ColorizedClickException("pods JSON .items does not contain a list of pods")
 
         namespaces_json = get_for_cluster(kubectl, "", "namespaces", "", "", False, "", "json", debug, plain=True, exact=True)
         try:
             namespaces = json.loads(namespaces_json)
         except json.JSONDecodeError as e:
-            raise make_click_exception(f"error loading namespaces JSON: {e}")
+            raise ColorizedClickException(f"error loading namespaces JSON: {e}")
         if not isinstance(namespaces, dict):
-            raise make_click_exception("namespaces JSON does not contain a valid document")
+            raise ColorizedClickException("namespaces JSON does not contain a valid document")
         namespaces = namespaces.get("items", [])
         if not isinstance(namespaces, list):
-            raise make_click_exception("namespaces JSON .items does not contain a list of namespaces")
+            raise ColorizedClickException("namespaces JSON .items does not contain a list of namespaces")
 
     nodes_json = get_for_cluster(kubectl, "", "nodes", "", "", False, "", "json", debug, plain=True, exact=True)
     try:
         nodes = json.loads(nodes_json)
     except json.JSONDecodeError as e:
-        raise make_click_exception(f"error loading nodes JSON: {e}")
+        raise ColorizedClickException(f"error loading nodes JSON: {e}")
     if not isinstance(nodes, dict):
-        raise make_click_exception("nodes JSON does not contain a valid document")
+        raise ColorizedClickException("nodes JSON does not contain a valid document")
     nodes = nodes.get("items", [])
     if not isinstance(nodes, list):
-        raise make_click_exception("nodes JSON .items does not contain a list of nodes")
+        raise ColorizedClickException("nodes JSON .items does not contain a list of nodes")
 
     msg = evaluate_nodes(pod, nodes, pods, namespaces, filter_fail, filter_pass, names, include_nodename)
     print_color(msg, "")
@@ -2181,7 +2274,7 @@ def evaluate_nodes(
     pod_name = pod.get("metadata", {}).get("name")
     pod_ns = pod.get("metadata", {}).get("namespace")
     if not pod_name or not pod_ns:
-        raise make_click_exception(f"target pod {pod_name or '<unknown>'}/{pod_ns or '<unknown>'} does not have a name or namespace")
+        raise ColorizedClickException(f"target pod {pod_name or '<unknown>'}/{pod_ns or '<unknown>'} does not have a name or namespace")
 
     pods_by_node_label = index_pods(pods, nodes)
     namespaces_by_name = {ns.get("metadata", {}).get("name", "<unknown>"): ns for ns in namespaces}
@@ -2221,7 +2314,7 @@ def index_pods(pods: list[JSONDict], nodes: list[JSONDict]) -> JSONLabelIndex:
         name = p.get("metadata", {}).get("name")
         ns = p.get("metadata", {}).get("namespace")
         if not name or not ns:
-            raise make_click_exception(f"pod {name or '<unknown>'}/{ns or '<unknown>'} does not have a name or namespace")
+            raise ColorizedClickException(f"pod {name or '<unknown>'}/{ns or '<unknown>'} does not have a name or namespace")
 
         # NOTE: leaving this out for now, as I feel it could lead to confusion
         # if ns == pod_ns and name == pod_name:
@@ -2391,7 +2484,7 @@ def _match_statuses_pod_affinity_term(
 ) -> tuple[list[str], list[str], list[str]]:
     topology_key = term.get("topologyKey", "")
     if not topology_key:
-        raise make_click_exception(f"pod affinity term {term} does not have a topologyKey")
+        raise ColorizedClickException(f"pod affinity term {term} does not have a topologyKey")
 
     pods = pods_by_node_label_for_node.get(topology_key, {})
 
@@ -2472,14 +2565,14 @@ def matches_expr(expr: JSONDict, labels: JSONDict) -> bool:
         try:
             return int(value_got) > int(values[0])
         except (ValueError, TypeError, IndexError):
-            raise make_click_exception(f"invalid value for Gt operator: {value_got}")
+            raise ColorizedClickException(f"invalid value for Gt operator: {value_got}")
     elif operator == "Lt":
         try:
             return int(value_got) < int(values[0])
         except (ValueError, TypeError, IndexError):
-            raise make_click_exception(f"invalid value for Lt operator: {value_got}")
+            raise ColorizedClickException(f"invalid value for Lt operator: {value_got}")
     else:
-        raise make_click_exception(f"unknown expression operator: {operator}")
+        raise ColorizedClickException(f"unknown expression operator: {operator}")
 
 
 def stringify_node_selector_terms(terms: list[JSONDict], labels: JSONDict, fields: JSONDict, *, neg: bool = False) -> str:
@@ -2516,7 +2609,7 @@ def stringify_expr(expr: Any, typ: str, neg: bool) -> str:
     if operator == "Lt":
         return f"{ITALIC}{key}{RESET}{op(U_LT, neg)}{values[0]}"
 
-    raise make_click_exception(f"unknown {typ} operator: {operator}")
+    raise ColorizedClickException(f"unknown {typ} operator: {operator}")
 
 
 def stringify_pod_affinity_terms(
@@ -2536,7 +2629,7 @@ def stringify_pod_affinity_terms(
             continue
         tk = term.get("topologyKey")
         if not tk:
-            raise make_click_exception(f"pod affinity term {term} does not have a topologyKey")
+            raise ColorizedClickException(f"pod affinity term {term} does not have a topologyKey")
 
         found_no_matches = not no_match
         str_fields = stringify_pod_affinity_term(term, neg, found_no_matches)
@@ -2635,7 +2728,7 @@ def tolerates_taint(tolerations: list[JSONDict], taint: JSONDict) -> bool:
             if tol.get("value") == value_taint:
                 return True
         else:
-            raise make_click_exception(f"unknown toleration operator: {operator}")
+            raise ColorizedClickException(f"unknown toleration operator: {operator}")
 
     return False
 
@@ -2667,10 +2760,10 @@ def get_pod_node_name(kubectl: str, pod: Resource, debug: bool) -> str:
     try:
         node_name = subprocess.check_output(cmd, text=True).strip()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"fetching pod node: {e}")
+        raise ColorizedClickException(f"fetching pod node: {e}")
 
     if not node_name:
-        raise make_click_exception(f"no node found for pod {pod.name}")
+        raise ColorizedClickException(f"no node found for pod {pod.name}")
 
     return node_name
 
@@ -2684,12 +2777,12 @@ def get_node_address(kubectl: str, node_name: str, use_name: bool, debug: bool) 
     try:
         node_json_str = subprocess.check_output(cmd, text=True).strip()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching node: {e}")
+        raise ColorizedClickException(f"error fetching node: {e}")
 
     try:
         node_json = json.loads(node_json_str)
     except json.JSONDecodeError as e:
-        raise make_click_exception(f"error decoding node JSON: {e}")
+        raise ColorizedClickException(f"error decoding node JSON: {e}")
 
     node_addrs = {addr["type"]: addr["address"] for addr in node_json.get("status", {}).get("addresses", [])}
     node_addr = get_first(
@@ -2720,12 +2813,12 @@ def get_resource_types(kubectl: str, rtype: str, debug: bool) -> list[str]:
     try:
         rtypes = subprocess.check_output(cmd, text=True).strip().splitlines()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching resource types: {e}")
+        raise ColorizedClickException(f"error fetching resource types: {e}")
     if not rtypes:
-        raise make_click_exception("no resource types found")
+        raise ColorizedClickException("no resource types found")
     rtypes = [rtype] if rtype in rtypes else [r for r in rtypes if is_subseq(rtype, r)]
     if not rtypes:
-        raise make_click_exception(f"no resource types found for query '{rtype}'")
+        raise ColorizedClickException(f"no resource types found for query '{rtype}'")
     return rtypes
 
 
@@ -2746,7 +2839,7 @@ def hydrate_multi_pod_and_multi_container_queries(
     pods = get_resources(kubectl, "", "pod", pquery, namespace, all_namespaces, clusters, label, select_fmt, debug, leader=leader)
     pods = choose_resources("pod", pquery, pods, Select.YES)
     if len(pods) == 0:
-        raise make_click_exception(f"no pods found for query '{pquery}' in {namespace} (all namespaces: {all_namespaces})")
+        raise ColorizedClickException(f"no pods found for query '{pquery}' in {namespace} (all namespaces: {all_namespaces})")
 
     if all_containers or len(pods) > 1:
         multi_containers = []
@@ -2823,7 +2916,7 @@ def get_resources(
         c: get_resources_for_cluster(kubectl, c, rtype, rquery, namespace, all_namespaces, False, label, select_fmt, debug, leader=leader, do_warn=do_warn)
         for c in clusters
     }
-    return Resources.from_clusters(cluster_to_resources, kubectl)
+    return Resources.from_clusters(cluster_to_resources, kubectl, debug)
 
 
 def get_resources_for_cluster(
@@ -2899,13 +2992,14 @@ def get_for_cluster(
             return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
     except subprocess.CalledProcessError as e:
         if exact:
-            raise make_click_exception(f"error fetching resources: {e}")
+            raise ColorizedClickException(f"error fetching resources: {e}")
+
     cmd = mk_cmd("")  # fall back to getting all resources of the type, then filter later
     log(f"get_for_cluster (fallback): {cmd=}", debug)
     try:
         return subprocess.check_output(cmd, text=True)
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching resources: {e}")
+        raise ColorizedClickException(f"error fetching resources: {e}")
 
 
 def make_resources(
@@ -2952,7 +3046,7 @@ def make_resources(
         resources = resources.filter(lambda r: is_subseq(rquery, r.name))
     if not resources:
         leader_msg = f" leader " if leader else " "
-        raise make_click_exception(f"no{leader_msg}{rtype} found for query '{rquery}'")
+        raise NoMatchException(f"no{leader_msg}{rtype} found for query '{rquery}'")
 
     if rtype == "node":  # special case for nodes to sort by age
         resources.reverse()
@@ -2979,12 +3073,12 @@ def get_containers(kubectl: str, pod: Resource, cquery: str, consider_init: bool
         containers = subprocess.check_output(cmd, text=True).strip().split()  # containers aren't newline separated
         containers = [strip_ansi(c) for c in containers]
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching containers: {e}")
+        raise ColorizedClickException(f"error fetching containers: {e}")
     if not containers:
-        raise make_click_exception(f"no containers found for pod {pod}")
+        raise ColorizedClickException(f"no containers found for pod {pod}")
     containers = [cquery] if cquery in containers else [c for c in containers if is_subseq(cquery, c)]
     if not containers:
-        raise make_click_exception(f"no containers found for pod {pod} with container query '{cquery}'")
+        raise ColorizedClickException(f"no containers found for pod {pod} with container query '{cquery}'")
     return containers
 
 
@@ -3009,7 +3103,7 @@ def get_lease_holders(kubectl: str, context: str, namespace: str, all_namespaces
             leases = [("", holder) for _, holder in leases]
         assert all(len(lease) == 2 for lease in leases), "lease output should be two columns: namespace and holder"
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching leases: {e}")
+        raise ColorizedClickException(f"error fetching leases: {e}")
     return leases
 
 
@@ -3038,7 +3132,7 @@ def hydrate_resource_queries(
     # 0 => get all if possible, else choose
     if not rqueries:
         if allow_sentinel and not select.is_selective() and not leader:
-            return all_resources_sentinel(kubectl, namespace, clusters)
+            return all_resources_sentinel(kubectl, namespace, clusters, debug)
         all_resources = get_resources(kubectl, "", rtype, "", namespace, all_namespaces, clusters, label, select_fmt, debug, leader=leader, do_warn=do_warn)
         return choose_resources(rtype, "", all_resources, select)
     # 1 => choose
@@ -3053,16 +3147,16 @@ def hydrate_resource_queries(
         all_resources = get_resources(kubectl, "", rtype, "", namespace, all_namespaces, clusters, label, select_fmt, debug, leader=leader, do_warn=do_warn)
         matching_resources = all_resources.filter(lambda r: any([is_subseq(q, r.name) for q in rqueries]))
         if not matching_resources:
-            raise make_click_exception(f"no {rtype} found for queries: {', '.join(rqueries)}")
+            raise ColorizedClickException(f"no {rtype} found for queries: {', '.join(rqueries)}")
         if not select.is_selective() and len(matching_resources) == len(rqueries):
             return matching_resources
         return choose_resources(rtype, "", matching_resources, select)
 
 
-def all_resources_sentinel(kubectl: str, namespace: str, clusters: list[str]) -> Resources:
+def all_resources_sentinel(kubectl: str, namespace: str, clusters: list[str], debug: bool) -> Resources:
     """Empty sentinel Resources, which kubectl will expand to all resources."""
     cluster_to_resources = {c: Resources([Resource("", namespace, c, "")], "", None, sentinel=True) for c in clusters or [""]}
-    return Resources.from_clusters(cluster_to_resources, kubectl)
+    return Resources.from_clusters(cluster_to_resources, kubectl, debug)
 
 
 def choose_resources(rtype: str, rquery: str, matching_resources: Resources, select: Select) -> Resources:
@@ -3091,7 +3185,7 @@ def choose_resources(rtype: str, rquery: str, matching_resources: Resources, sel
 
 def choose_resource(rtype: str, rquery: str, matching_resources: Resources) -> Resource:
     """Choose resources based on query, ensuring a single resource."""
-    return choose_resources(rtype, rquery, matching_resources, Select.YES).pop()
+    return choose_resources(rtype, rquery, matching_resources, Select.ONE).pop()
 
 
 def choose_containers(pod: Resource, cquery: str, containers: list[str], guess: bool, debug: bool) -> list[str]:
@@ -3144,12 +3238,12 @@ def _fzf(cmd: list[str], items: list[str], item_name: str) -> list[str]:
         lines = subprocess.check_output(cmd, input="\n".join(items), text=True).splitlines()
     except subprocess.CalledProcessError as e:
         if e.returncode == 130:  # fzf exit code for no selection
-            raise make_click_exception(f"no {item_name} selected")
-        raise make_click_exception(f"fzf selection failed: {e}")
+            raise ColorizedClickException(f"no {item_name} selected")
+        raise ColorizedClickException(f"fzf selection failed: {e}")
 
     # Double-check fzf output
     if not lines:
-        raise make_click_exception(f"no {item_name} selected")
+        raise ColorizedClickException(f"no {item_name} selected")
 
     return lines
 
@@ -3172,7 +3266,7 @@ def get_kubectl_generic_action_commands(
 
     n_clusters = len(by_cluster_by_namespace)
     if n_clusters > 1 and output_fmt in ("logs-follow",):
-        raise make_click_exception(f"can't use {output_fmt} output format with multiple clusters")
+        raise ColorizedClickException(f"can't use {output_fmt} output format with multiple clusters")
 
     for c, by_namespace in by_cluster_by_namespace.items():
         for n, rs in by_namespace.items():
@@ -3211,9 +3305,9 @@ def get_kubectl_generic_action_command(
 ) -> Command:
     if output_fmt in ("parents", "children"):
         if not resources.names():
-            raise make_click_exception(f"can't specify less than 1 {rtype} for lineage output type")
+            raise ColorizedClickException(f"can't specify less than 1 {rtype} for lineage output type")
         if len(resources.names()) > 1:
-            raise make_click_exception(f"can't specify more than 1 {rtype} for lineage output type")
+            raise ColorizedClickException(f"can't specify more than 1 {rtype} for lineage output type")
         cmd = remove_empty(
             [
                 kubectl,
@@ -3229,9 +3323,9 @@ def get_kubectl_generic_action_command(
     elif output_fmt in ("logs", "logs-follow"):
         is_multi_pods = rtype.lower() in ("pod", "pods") and len(resources.names()) > 1
         if not resources.names():
-            raise make_click_exception(f"can't specify less than 1 {rtype} for logs output type")
+            raise ColorizedClickException(f"can't specify less than 1 {rtype} for logs output type")
         if len(resources.names()) > 1 and not is_multi_pods:
-            raise make_click_exception(f"can't specify more than 1 {rtype} for logs output type")
+            raise ColorizedClickException(f"can't specify more than 1 {rtype} for logs output type")
         has_nofollow = "--no-follow" in ctx.args
         follow = False if has_nofollow else {"logs": False, "logs-follow": True}[output_fmt]
         should_no_follow = not has_nofollow and not follow
@@ -3254,13 +3348,13 @@ def get_kubectl_generic_action_command(
         )
     elif output_fmt in ("pods",):
         if not resources.names():
-            raise make_click_exception(f"can't specify less than 1 {rtype} for pods output type")
+            raise ColorizedClickException(f"can't specify less than 1 {rtype} for pods output type")
         if len(resources.names()) > 1:
-            raise make_click_exception(f"can't specify more than 1 {rtype} for pods output type")
+            raise ColorizedClickException(f"can't specify more than 1 {rtype} for pods output type")
         if rtype not in ("node", "nodes"):
-            raise make_click_exception(f"pods output type is only supported for node resources, not {rtype}")
+            raise ColorizedClickException(f"pods output type is only supported for node resources, not {rtype}")
         if "--field-selector" in ctx.args:
-            raise make_click_exception("can't use --field-selector for pods output type")
+            raise ColorizedClickException("can't use --field-selector for pods output type")
         cmd = remove_empty(
             [
                 kubectl,
@@ -3275,11 +3369,11 @@ def get_kubectl_generic_action_command(
         )
     elif output_fmt in ("containers",):
         if not resources.names():
-            raise make_click_exception(f"can't specify less than 1 {rtype} for containers output type")
+            raise ColorizedClickException(f"can't specify less than 1 {rtype} for containers output type")
         if len(resources.names()) > 1:
-            raise make_click_exception(f"can't specify more than 1 {rtype} for containers output type")
+            raise ColorizedClickException(f"can't specify more than 1 {rtype} for containers output type")
         if rtype not in ("pod", "pods"):
-            raise make_click_exception(f"containers output type is only supported for pod resources, not {rtype}")
+            raise ColorizedClickException(f"containers output type is only supported for pod resources, not {rtype}")
         cmd = remove_empty(
             [
                 kubectl,
@@ -3296,9 +3390,9 @@ def get_kubectl_generic_action_command(
         )
     elif output_fmt in ("events",):
         if not resources.names():
-            raise make_click_exception(f"can't specify less than 1 {rtype} for events output type")
+            raise ColorizedClickException(f"can't specify less than 1 {rtype} for events output type")
         if len(resources.names()) > 1:
-            raise make_click_exception(f"can't specify more than 1 {rtype} for events output type")
+            raise ColorizedClickException(f"can't specify more than 1 {rtype} for events output type")
         cmd = remove_empty(
             [
                 kubectl,
@@ -3315,9 +3409,9 @@ def get_kubectl_generic_action_command(
         )
     elif output_fmt in ("describe",):
         if not resources.names():
-            raise make_click_exception(f"can't specify less than 1 {rtype} for describe output type")
+            raise ColorizedClickException(f"can't specify less than 1 {rtype} for describe output type")
         if len(resources.names()) > 1:
-            raise make_click_exception(f"can't specify more than 1 {rtype} for describe output type")
+            raise ColorizedClickException(f"can't specify more than 1 {rtype} for describe output type")
         cmd = remove_empty(
             [
                 kubectl,
@@ -3362,10 +3456,10 @@ def get_kubectl_logs_command(
 ) -> Command:
     namespaces = set(p.namespace for p in pods)
     if len(namespaces) > 1:
-        raise make_click_exception("cannot log multiple pods in different namespaces at once")
+        raise ColorizedClickException("cannot log multiple pods in different namespaces at once")
     clusters = set(p.cluster for p in pods)
     if len(clusters) > 1:
-        raise make_click_exception("cannot log multiple pods in different clusters at once")
+        raise ColorizedClickException("cannot log multiple pods in different clusters at once")
     ns, cluster = namespaces.pop(), clusters.pop()
 
     # Multi-pod
@@ -3387,7 +3481,7 @@ def get_kubectl_logs_command(
     else:
         pod = pods.pop()
         if not check_containers_state(kubectl, pod, containers, debug, allow_terminated=True):
-            raise make_click_exception(f"container(s) {','.join(containers)} not ready in pod {pod.name}")
+            raise ColorizedClickException(f"container(s) {','.join(containers)} not ready in pod {pod.name}")
 
         if len(containers) == 1:
             log_cmd = remove_empty(
@@ -3433,7 +3527,7 @@ def get_kubectl_exec_command(ctx: click.Context, kubectl: str, pod: Resource, co
     ns, cluster = pod.namespace, pod.cluster
 
     if not check_containers_state(kubectl, pod, [container], debug, wanted_states=["running"]):
-        raise make_click_exception(f"container {container} not ready in pod {pod.name}")
+        raise ColorizedClickException(f"container {container} not ready in pod {pod.name}")
 
     cmd = remove_empty(
         [
@@ -3479,11 +3573,11 @@ def check_containers_state(
     try:
         pod_json = subprocess.check_output(cmd, text=True).strip()
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"check containers ready: fetch pod: {e}")
+        raise ColorizedClickException(f"check containers ready: fetch pod: {e}")
     try:
         pod_info = json.loads(pod_json)
     except json.JSONDecodeError as e:
-        raise make_click_exception(f"check containers ready: decode pod JSON: {e}")
+        raise ColorizedClickException(f"check containers ready: decode pod JSON: {e}")
     container_statuses = pod_info.get("status", {}).get("containerStatuses", []) + pod_info.get("status", {}).get("initContainerStatuses", [])
     containers_in_loggable_state = {
         c["name"]
@@ -3640,7 +3734,7 @@ def rtype_to_kind(rtype: str, context: str, debug: bool) -> str:
     for res in make_api_resources("kubectl", context, debug):
         if res.is_rtype(rtype):
             return res.kind
-    raise make_click_exception(f"unknown resource type: {rtype}")
+    raise ColorizedClickException(f"unknown resource type: {rtype}")
 
 
 @lru_cache(maxsize=1)
@@ -3658,7 +3752,7 @@ def make_api_resources(kubectl: str, context: str, debug: bool) -> list[APIResou
         stdout = subprocess.check_output(cmd, text=True).strip()
         resources = [APIResource.from_line(line) for line in stdout.splitlines() if line]
     except subprocess.CalledProcessError as e:
-        raise make_click_exception(f"error fetching api-resources: {e}")
+        raise ColorizedClickException(f"error fetching api-resources: {e}")
     return resources
 
 

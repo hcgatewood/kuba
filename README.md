@@ -1,6 +1,6 @@
 # Kuba
 
-The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](https://github.com/antonmedv/fx), [aliases](https://github.com/ahmetb/kubectl-aliases), and more!
+The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](https://github.com/antonmedv/fx), [aliases](https://github.com/ahmetb/kubectl-aliases), new output formats, and more!
 
 <p align="center"><img src="https://raw.githubusercontent.com/hcgatewood/kuba/main/assets/logo_transparent.png" alt="Kuba logo" width="300"/></p>
 
@@ -8,9 +8,10 @@ The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](
 
 <p align="center"><img src="https://raw.githubusercontent.com/hcgatewood/kuba/main/assets/demo.gif" alt="Kuba demo" width="1000"/></p>
 
-- ☁️ **Fuzzy commands** like get, describe, logs, exec
-- 🧠 **Guess pod containers** automagically, no more typing `-c <container-name>`
+- ☁️ **Fuzzy arguments** for get, describe, logs, exec
+- 🔎 **New output formats** like fx, lineage, events, pod's node, node's pods, and pod's containers
 - ✈️ **Cross namespaces and clusters** in one command, no more for loops
+- 🧠 **Guess pod containers** automagically, no more `-c <container-name>`
 - ⚡ **Cut down on keystrokes** with an extensible alias language, e.g. `kpf` to `kuba get pods -o json | fx`
 - 🧪 **Simulate scheduling** without the scheduler, try it with `kuba sched`
 - 🔁 **And lots more**!
@@ -45,23 +46,24 @@ Start by using `kuba get` and `kuba describe` as ~drop-in replacements for `kube
 $ kuba --help
 Usage: kuba [OPTIONS] COMMAND [ARGS]...
 
-  The kuba-mazing kubectl companion.
+  The magical kubectl companion.
 
 Options:
   -h, --help  Show this message and exit.
 
 Commands:
-  api       Shadow of `kubectl api-resources` but with optional fzf for resource selection.
-  cluster   Shadow of `kubectx` and `kubens` for all-in-one switching between logical clusters.
-  ctx       Shadow of `kubectx` for context switching.
-  describe  Shadow of `kubectl describe` but with optional fzf for resource selection.
-  exec      Shadow of `kubectl exec` but with optional fzf for pod and container selection.
-  get       Shadow of `kubectl get` but with optional fzf for resource selection.
-  logs      Shadow of `kubectl logs` but with optional fzf for pod and container selection.
-  ns        Shadow of `kubens` for namespace switching.
+  api       Enhances kubectl api-resources.
+  cluster   Combines kubectx + kubens for all-in-one switching between clusters.
+  ctx       Enhances kubectx.
+  describe  Enhances kubectl describe.
+  exec      Enhances kubectl exec.
+  get       Enhances kubectl get.
+  hostname  Convert between node names and hostnames.
+  logs      Enhances kubectl logs.
+  ns        Enhances kubens.
   sched     Predict which nodes a pod can be scheduled on.
   shellenv  Generate k-aliases and completions for easy kubectl resource access.
-  ssh       Shadow of `ssh` for connecting to a node, with optional fzf for node selection.
+  ssh       SSH into a node.
 ```
 
 ### Alias language
