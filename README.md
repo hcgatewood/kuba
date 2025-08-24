@@ -81,7 +81,7 @@ Usage: kuba shellenv [OPTIONS]
 
   GENERAL
 
-  - kns => kuba ns
+  - kns => kuba ns (suffixes: l=list)
   - kctx => kuba ctx (suffixes: l=list, n=ns)
   - kclus => kuba cluster
   - kssh => kuba ssh (suffixes: a=any, p=pods)
@@ -161,14 +161,14 @@ Usage: kuba shellenv [OPTIONS]
 Options:
   --resources TEXT    Add or override resource mappings, formatted as e.g. p=pod,n=node. Can also set via
                       KUBA_SHELLENV_RESOURCES env var.
-  --clusters TEXT     List of clusters to consider, formatted as e.g. k1=v1,k2=v2 (use '*' to match multiple
-                      clusters). Can also set via KUBA_CLUSTERS env var.
+  --clusters TEXT     List of clusters to consider, formatted as e.g. stag*=k8s-staging-*,prod=k8s-production (use
+                      single '*' to match multiple clusters). Can also set via KUBA_CLUSTERS env var.
   --shell [|zsh]      Override shell detection.
   --kubectl TEXT      Name or path of the kubectl binary to use. Can also set via KUBA_KUBECTL env var.
   --no-native         Don't include the default native resource mappings.
   --no-resources      Don't include aliases and completions for resource-level commands.
   --no-containers     Don't include aliases and completions for container-level commands.
-  --ssh-bastion TEXT  SSH bastion option to use with kuba ssh.
+  --ssh-bastion TEXT  SSH bastion option to use with kuba ssh. Can also set via KUBA_SSH_BASTION env var.
   --ssh-use-name      Use name option to use with kuba ssh.
   --list              Just list all resource aliases.
   --listq TEXT        Same as --list, but filter for the query.

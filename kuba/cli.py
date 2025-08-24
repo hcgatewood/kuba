@@ -853,7 +853,7 @@ def cli():
     "cluster_aliases",
     default=os.getenv("KUBA_CLUSTERS", ""),
     callback=parse_cluster_aliases,
-    help="List of clusters to consider, formatted as e.g. k1=v1,k2=v2 (use '*' to match multiple clusters). Can also set via KUBA_CLUSTERS env var.",
+    help="List of clusters to consider, formatted as e.g. stag*=k8s-staging-*,prod=k8s-production (use single '*' to match multiple clusters). Can also set via KUBA_CLUSTERS env var.",
 )
 @click.option("--shell", type=click.Choice(["", "zsh"]), default=get_shell(), help="Override shell detection.")
 @click.option(
@@ -862,7 +862,7 @@ def cli():
 @click.option("--no-native", is_flag=True, help="Don't include the default native resource mappings.")
 @click.option("--no-resources", is_flag=True, help="Don't include aliases and completions for resource-level commands.")
 @click.option("--no-containers", is_flag=True, help="Don't include aliases and completions for container-level commands.")
-@click.option("--ssh-bastion", help="SSH bastion option to use with kuba ssh.")
+@click.option("--ssh-bastion", help="SSH bastion option to use with kuba ssh. Can also set via KUBA_SSH_BASTION env var.")
 @click.option("--ssh-use-name", is_flag=True, help="Use name option to use with kuba ssh.")
 @click.option("--list", "list_resource_aliases", is_flag=True, help="Just list all resource aliases.")
 @click.option("--listq", "list_resource_aliases_query", default="", help="Same as --list, but filter for the query.")
@@ -892,7 +892,7 @@ def shellenv_cmd(
     GENERAL
 
     \b
-    - kns => kuba ns
+    - kns => kuba ns (suffixes: l=list)
     - kctx => kuba ctx (suffixes: l=list, n=ns)
     - kclus => kuba cluster
     - kssh => kuba ssh (suffixes: a=any, p=pods)
@@ -2047,7 +2047,7 @@ def exec_cmd(
     "bastions",
     callback=parse_kv_simple_regex,
     default=os.getenv("KUBA_SSH_BASTION", ""),
-    help="Add bastion host requirements by (regex of) context, formatted as e.g. *staging*=bastion-001,*prod*=bastion-002.",
+    help="Add bastion host requirements by (regex of) context, formatted as e.g. *staging*=bastion-001,*prod*=bastion-002. Can also set via KUBA_SSH_BASTION env var.",
 )
 @click.option("--use-name", is_flag=True, default=getenv_bool("KUBA_SSH_USE_NAME"), help="Use node name for SSH instead of default address selection.")
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
