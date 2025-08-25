@@ -3415,7 +3415,7 @@ def get_kubectl_generic_action_command(
         cmd = remove_empty(
             [
                 kubectl,
-                action,
+                "describe",
                 rtype,
                 resources.names().pop(),
                 f"--namespace={namespace}" if namespace else "",
