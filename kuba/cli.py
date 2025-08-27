@@ -304,7 +304,7 @@ class Resources(list[Resource]):
         headers = remove_empty({tuple(rs.header.split()) for rs in cluster_to_resources.values()})
         if len(headers) > 1:
             raise ValueError(f"expected all resources to have the same header, got: {headers}")
-        header = get_any_val([rs.header for rs in cluster_to_resources.values()])
+        header = get_any_val([rs.header for rs in cluster_to_resources.values() if rs.header])
         indices = get_only_val([rs.indices for rs in cluster_to_resources.values()])
         if indices:
             raise NotImplementedError("indices not supported for cluster resources")
@@ -2911,12 +2911,20 @@ def get_resources(
     leader: bool = False,
     do_warn: bool = True,
 ) -> Resources:
+    log(f"get_resources: {context=}, {rtype=}, {rquery=}, {clusters=}", debug)
     clusters = clusters or [context or ""]
+    do_warn = do_warn if len(clusters) == 1 else False
+
     cluster_to_resources = {
         c: get_resources_for_cluster(kubectl, c, rtype, rquery, namespace, all_namespaces, False, label, select_fmt, debug, leader=leader, do_warn=do_warn)
         for c in clusters
     }
-    return Resources.from_clusters(cluster_to_resources, kubectl, debug)
+    if not any(cluster_to_resources.values()):
+        leader_msg = f" leader " if leader else " "
+        raise NoMatchException(f"no{leader_msg}{rtype} found for query '{rquery}'")
+
+    resources = Resources.from_clusters(cluster_to_resources, kubectl, debug)
+    return resources
 
 
 def get_resources_for_cluster(
@@ -2934,6 +2942,7 @@ def get_resources_for_cluster(
     leader: bool = False,
     do_warn: bool = True,
 ) -> Resources:
+    log(f"get_resources_for_cluster: {context=}, {rtype=}, {rquery=}, {multi_cluster=}", debug)
     stdout_lines = get_for_cluster(kubectl, context, rtype, rquery, namespace, all_namespaces, label, select_fmt, debug).strip().splitlines()
     return make_resources(
         kubectl,
@@ -2997,7 +3006,7 @@ def get_for_cluster(
     cmd = mk_cmd("")  # fall back to getting all resources of the type, then filter later
     log(f"get_for_cluster (fallback): {cmd=}", debug)
     try:
-        return subprocess.check_output(cmd, text=True)
+        return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
     except subprocess.CalledProcessError as e:
         raise ColorizedClickException(f"error fetching resources: {e}")
 
@@ -3044,11 +3053,8 @@ def make_resources(
         resources = resources.filter_by_name(rquery)
     else:
         resources = resources.filter(lambda r: is_subseq(rquery, r.name))
-    if not resources:
-        leader_msg = f" leader " if leader else " "
-        raise NoMatchException(f"no{leader_msg}{rtype} found for query '{rquery}'")
 
-    if rtype == "node":  # special case for nodes to sort by age
+    if rtype == "node":  # UX: special case for nodes to sort by age
         resources.reverse()
 
     return resources
