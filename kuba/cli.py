@@ -3006,7 +3006,7 @@ def get_for_cluster(
     cmd = mk_cmd("")  # fall back to getting all resources of the type, then filter later
     log(f"get_for_cluster (fallback): {cmd=}", debug)
     try:
-        return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+        return subprocess.check_output(cmd, text=True)
     except subprocess.CalledProcessError as e:
         raise ColorizedClickException(f"error fetching resources: {e}")
 
