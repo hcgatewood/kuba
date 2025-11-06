@@ -10,7 +10,7 @@ The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](
 
 - ☁️ **Fuzzy arguments** for get, describe, logs, exec
 - 🔎 **New output formats** like fx, lineage, events, pod's node, node's pods, and pod's containers
-- ✈️ **Cross namespaces and clusters** in one command, no more for loops
+- ✈️ **Cross namespaces and clusters** in one command, no more for-loops
 - 🧠 **Guess pod containers** automagically, no more `-c <container-name>`
 - ⚡ **Cut down on keystrokes** with an extensible alias language, e.g. `kpf` to `kuba get pods -o json | fx`
 - 🧪 **Simulate scheduling** without the scheduler, try it with `kuba sched`
