@@ -184,3 +184,10 @@ Options:
 - Kubectl aliases
     - [fubectl](https://github.com/kubermatic/fubectl)
     - [kubectl-aliases](https://github.com/ahmetb/kubectl-aliases)
+
+## See also
+
+- 🐙 [Jdd](https://github.com/hcgatewood/jdd): JSON diff diver — the time machine for your JSON
+- ☁️ [Appa](https://github.com/hcgatewood/appa): Markdown previews with live reload
+- 🔮 [PDate](https://github.com/hcgatewood/pdate): human-readable dates and times
+- 🔬 [Vis](https://github.com/hcgatewood/vis): visualize fuzzy tabular data
