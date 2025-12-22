@@ -1,4 +1,4 @@
-# Kuba
+# Kuba: kubectl wizardry
 
 The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](https://github.com/antonmedv/fx), [aliases](https://github.com/ahmetb/kubectl-aliases), new output formats, and more!
 
@@ -7,6 +7,8 @@ The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](
 ## Features
 
 <p align="center"><img src="https://raw.githubusercontent.com/hcgatewood/kuba/main/assets/demo.gif" alt="Kuba demo" width="1000"/></p>
+
+Kuba is an **evolution of kubectl** that makes it **more efficient for power users**, especially platform operators and SREs managing multiple clusters, investigating cross-cutting issues, and supporting multiple teams/orgs. It adds a number of key features to kubectl, including:
 
 - ☁️ **Fuzzy arguments** for get, describe, logs, exec
 - 🔎 **New output formats** like fx, lineage, events, pod's node, node's pods, and pod's containers
@@ -188,6 +190,7 @@ Options:
 ## See also
 
 - 🐙 [Jdd](https://github.com/hcgatewood/jdd): JSON diff diver — the time machine for your JSON
+- ⚡️ [Dotsync](https://github.com/hcgatewood/dotsync): dotfiles everywhere, instantly
 - ☁️ [Appa](https://github.com/hcgatewood/appa): Markdown previews with live reload
 - 🔮 [PDate](https://github.com/hcgatewood/pdate): human-readable dates and times
 - 🔬 [Vis](https://github.com/hcgatewood/vis): visualize fuzzy tabular data
