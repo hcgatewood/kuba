@@ -310,6 +310,9 @@ class Resources(list[Resource]):
             raise NotImplementedError("indices not supported for cluster resources")
         sentinel = get_only_val([rs.sentinel for rs in cluster_to_resources.values()])
 
+        for rs in cluster_to_resources.values():
+            rs.rectify(debug)
+
         header = colorize(f"{BOLD}CLUSTER{RESET}{SEP}{header}", kubectl=kubectl) if header else ""
         for c, rs in cluster_to_resources.items():
             rs.header = header
@@ -390,19 +393,76 @@ class Resources(list[Resource]):
     def by_cluster_by_namespace(self) -> dict[str, dict[str, "Resources"]]:
         return {c: rs.by_namespace() for c, rs in self.by_cluster().items()}
 
-    def justify(self, debug: bool, *, rectify: Callable[[list[str]], None] = None) -> "Resources":
-        """Justify resources from different clusters into a single table."""
+    def rectify(self, debug: bool) -> "Resources":
+        """Rectify resources by placing a `-` placeholder in each empty field of the description, to ensure correct justification."""
+        if not self:
+            return self
+        if not self.header:
+            raise ValueError("expected header to rectify resources, got empty header")
+
+        r = re.compile(rf"\s{{{SEP_LEN},}}")  # e.g. \s{3,}
+
+        @dataclass
+        class ParsedDescription:
+            raw_chunks: list[str]
+            clean_starts: list[int]
+
+        def parse_description(_row: str) -> ParsedDescription:
+            stripped = _row.strip()
+            return ParsedDescription(
+                raw_chunks=remove_empty(r.split(stripped)),
+                clean_starts=[0] + [m.end() for m in r.finditer(strip_ansi(stripped))],
+            )
+
+        parsed_header = parse_description(self.header)
+        n_cols = len(parsed_header.raw_chunks)
+        log(f"rectify parsed header into {n_cols} columns: {parsed_header.raw_chunks} with starts {parsed_header.clean_starts}", debug)
+
+        for res in self:
+            if not res.description:
+                raise ValueError("expected all resources to have descriptions to rectify")
+
+            desc = parse_description(res.description)
+            log(
+                f"rectify parsed description into {len(desc.raw_chunks)} columns: {desc.raw_chunks} with starts {desc.clean_starts} for '{res.description}'",
+                debug,
+            )
+
+            mapped_cols = ["-"] * n_cols
+            last_idx = -1
+
+            for i, (chunk, start) in enumerate(zip(desc.raw_chunks, desc.clean_starts)):
+                if i >= n_cols:
+                    raise ValueError(f"unexpected number of fields in description: expected <= {n_cols}, got {len(desc.raw_chunks)} in '{res.description}'")
+
+                remaining_chunks = len(desc.raw_chunks) - i
+                max_allowed_idx = n_cols - remaining_chunks  # ensure enough space for remaining chunks
+                allowed_idxs = range(last_idx + 1, max_allowed_idx + 1)
+                if not allowed_idxs:
+                    raise ValueError(f"expected to find allowed cols for '{chunk}' starting at {start} in '{res.description}', but no allowed columns found")
+
+                best_idx = min(allowed_idxs, key=lambda col_idx: abs(parsed_header.clean_starts[col_idx] - start))
+
+                mapped_cols[best_idx] = chunk
+                last_idx = best_idx  # don't overwrite previously mapped chunks
+
+            res.description = SEP.join(mapped_cols)
+
+        return self
+
+    def justify(self, debug: bool) -> "Resources":
+        """
+        Justify resources from different clusters into a single table.
+
+        Assumes resources are already rectified where necessary, i.e. no holes in the descriptions.
+        """
         if not self:
             raise ValueError("expected at least one resource")
 
         r = re.compile(rf"\s{{{SEP_LEN},}}")  # e.g. \s{3,}
 
-        rows = [self.header] + [r.description.strip() for r in self]
+        rows = [self.header.strip()] + [r.description.strip() for r in self]
         row_cols = [r.split(row) for row in rows]
-
-        if rectify:
-            for row in row_cols:
-                rectify(row)
 
         n_cols = len(row_cols[0])
         if not all(len(row) == n_cols for row in row_cols):
@@ -1591,10 +1651,6 @@ def api_cmd(ctx: click.Context, aquery: str, select: Optional[bool], one: bool, 
     output_fmt = output_fmt.lstrip("=") if output_fmt else ""  # HACK: -o=wide results in output="=wide", might be a click bug
     log(f"adjusted args: {aquery=}, {ctx.args=}", debug)
 
-    def rectify_api(row: list[str]):
-        if len(row) < 5:
-            row.insert(1, "-")
-
     # API resources don't allow getting specific resources, so we can fake it if --select
     should_select = select or bool(aquery)
     if should_select:
@@ -1604,7 +1660,7 @@ def api_cmd(ctx: click.Context, aquery: str, select: Optional[bool], one: bool, 
             raise ColorizedClickException("cannot use --command with --select for API resources")
         matching_apis = get_api_resources(kubectl, aquery, debug)
         apis = choose_resources("API resource", aquery, matching_apis, select)
-        apis = apis.justify(debug, rectify=rectify_api)
+        apis = apis.rectify(debug).justify(debug)
         if output_fmt == "name":
             print_color("\n".join([f"{WHITE}{n}{RESET}" for n in apis.names()]), kubectl)
         else:
@@ -1849,7 +1905,7 @@ def _generic_kubectl_action(
         if output_fmt == "name":
             print_color("\n".join([f"{WHITE}{n}{RESET}" for n in resources.names()]), kubectl)
         else:
-            print_resources(resources.justify(debug), kubectl)
+            print_resources(resources.rectify(debug).justify(debug), kubectl)
         return
 
     ctx.args = handle_overrides(ctx.args, rtype, len(resources), debug, output_fmt=output_fmt, label_columns=label_columns, sort_by=sort_by)
