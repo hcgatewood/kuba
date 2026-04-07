@@ -290,9 +290,7 @@ class Resources(list[Resource]):
             header = ""
         elif header is True:
             header = descriptions.pop(0) if descriptions else ""
-        return cls(
-            descriptions, header, indices, desc_has_namespace=desc_has_namespace, desc_has_cluster=desc_has_cluster, namespace=namespace, cluster=cluster
-        )
+        return cls(descriptions, header, indices, desc_has_namespace=desc_has_namespace, desc_has_cluster=desc_has_cluster, namespace=namespace, cluster=cluster)
 
     @classmethod
     def from_clusters(cls, cluster_to_resources: dict[str, "Resources"], kubectl: str, debug: bool) -> "Resources":
@@ -337,9 +335,7 @@ class Resources(list[Resource]):
         self.indices = indices
         self.sentinel = sentinel
         if all(isinstance(r, str) for r in resources):
-            super().__init__(
-                [Resource.from_description(r, desc_has_namespace, desc_has_cluster, indices, cluster=cluster, namespace=namespace) for r in resources]
-            )
+            super().__init__([Resource.from_description(r, desc_has_namespace, desc_has_cluster, indices, cluster=cluster, namespace=namespace) for r in resources])
         elif all(isinstance(r, Resource) for r in resources):
             super().__init__(resources)
         else:
@@ -524,9 +520,7 @@ class Command(list):
         else:
             self.execute(kubectl, stderr_only=stderr_only)
 
-    def execute(
-        self, kubectl: str, *, print_ns: bool = False, print_cluster: bool = False, err_msg: str = None, stderr_only: bool = False, raise_errs: bool = True
-    ):
+    def execute(self, kubectl: str, *, print_ns: bool = False, print_cluster: bool = False, err_msg: str = None, stderr_only: bool = False, raise_errs: bool = True):
         if print_cluster:
             print_color(f"{BOLD}CLUSTER{RESET} {CYAN}{self.cluster}{RESET}", kubectl, flush=True)
         if print_ns:
@@ -581,9 +575,7 @@ class Commands(list[Command]):
         for idx, cmd in enumerate(self):
             multi_msg = f" (command {idx+1}/{len(self)})" if self.is_multi() else ""
             err_msg = f"failed to run {cmd_name}{multi_msg}"
-            cmd.execute(
-                kubectl, err_msg=err_msg, print_ns=print_namespaces, print_cluster=print_clusters, stderr_only=stderr_only, raise_errs=not print_clusters
-            )
+            cmd.execute(kubectl, err_msg=err_msg, print_ns=print_namespaces, print_cluster=print_clusters, stderr_only=stderr_only, raise_errs=not print_clusters)
             if self.is_multi() and idx < len(self) - 1:
                 print(flush=True)
 
@@ -916,9 +908,7 @@ def cli():
     help="List of clusters to consider, formatted as e.g. stag*=k8s-staging-*,prod=k8s-production (use single '*' to match multiple clusters). Can also set via KUBA_CLUSTERS env var.",
 )
 @click.option("--shell", type=click.Choice(["", "zsh"]), default=get_shell(), help="Override shell detection.")
-@click.option(
-    "--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use. Can also set via KUBA_KUBECTL env var."
-)
+@click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use. Can also set via KUBA_KUBECTL env var.")
 @click.option("--no-native", is_flag=True, help="Don't include the default native resource mappings.")
 @click.option("--no-resources", is_flag=True, help="Don't include aliases and completions for resource-level commands.")
 @click.option("--no-containers", is_flag=True, help="Don't include aliases and completions for container-level commands.")
@@ -987,6 +977,8 @@ def shellenv_cmd(
         - (y)aml
         - (j)son
         - (f)x
+        - la(b)els
+        - anno(t)ations
         - (e)vents
         - lo(g)s
         - follow (l)ogs
@@ -1157,6 +1149,8 @@ def shellenv_resources(rtypes: dict[str, str], shell: str, no_native: bool, debu
         "alias k{char}{a}{m}{x}{z}w='kuba get {leader} {select} {all} {multi} --output=wide {rtype}'",
         "alias k{char}{a}{m}{x}{z}y='kuba get {leader} {select} {all} {multi} --output=yaml {rtype}'",
         "alias k{char}{a}{m}{x}{z}j='kuba get {leader} {select} {all} {multi} --output=json {rtype}'",
+        "alias k{char}{a}{m}{x}{z}b='kuba get {leader} {select} {all} {multi} --output=labels {rtype}'",
+        "alias k{char}{a}{m}{x}{z}t='kuba get {leader} {select} {all} {multi} --output=annotations {rtype}'",
         "alias k{char}{a}{m}{x}{z}e='kuba get {leader} {select} {all} {multi} --output=events {rtype}'",
         "alias k{char}{a}{m}{x}{z}c='kuba get {leader} {select} {all} {multi} --output=children {rtype}'",
         "alias k{char}{a}{m}{x}{z}u='kuba get {leader} {select} {all} {multi} --output=parents {rtype}'",
@@ -1404,9 +1398,7 @@ def get_namespace(kubectl: str, debug: bool) -> str:
 @click.option("--list", "just_list", is_flag=True, help="Just list available contexts.")
 @click.option("--nss", "keep_ns", is_flag=True, help="Try to keep the current namespace.")
 @click.option("--ns", "force_keep_ns", is_flag=True, help="Try to keep the current namespace, selecting if not possible.")
-@click.option(
-    "--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider."
-)
+@click.option("--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider.")
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
 @click.option("--command-multi", "try_print", is_flag=True, help="If more than one result, just print the final command that would have been run.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
@@ -1557,6 +1549,8 @@ FullOutputType = click.Choice(
         "yaml",
         "json",
         "fx",
+        "labels",
+        "annotations",
         "events",
         "logs",
         "logs-follow",
@@ -1706,9 +1700,7 @@ def get_api_resources_command(ctx: click.Context, kubectl: str, debug: bool, out
 @click.option("--one", is_flag=True, help="Only return up to one resource.")
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
 @click.option("--multi-cluster", is_flag=True, help="List objects across the current cluster's sibling clusters.")
-@click.option(
-    "--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider."
-)
+@click.option("--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 @click.option("--command", "just_print", is_flag=True, help="Just print the final command that would have been run.")
 @click.option("--must-single-command", help="Fail with provided reason if multiple commands are required to generate the output.")
@@ -1779,9 +1771,7 @@ def get_cmd(
 @click.option("--one", is_flag=True, help="Only return up to one resource.")
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
 @click.option("--multi-cluster", is_flag=True, help="List objects across the current cluster's sibling clusters.")
-@click.option(
-    "--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider."
-)
+@click.option("--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 @click.option("--command", "just_print", is_flag=True, help="Just print the final command that would have been run.")
 @click.option("--must-single-command", help="Fail with provided reason if multiple commands are required to generate the output.")
@@ -1910,6 +1900,11 @@ def _generic_kubectl_action(
 
     ctx.args = handle_overrides(ctx.args, rtype, len(resources), debug, output_fmt=output_fmt, label_columns=label_columns, sort_by=sort_by)
     all_namespaces = all_namespaces and resources.sentinel  # now only --all-namespaces when listing all resources
+
+    if output_fmt in ("labels", "annotations"):
+        print_metadata_map(ctx, kubectl, rtype, resources, namespace, output_fmt, debug)
+        return
+
     cmds = get_kubectl_generic_action_commands(
         ctx,
         kubectl,
@@ -1956,7 +1951,7 @@ def get_select(select: Optional[bool], action: str, output_fmt: str) -> Select:
         return Select.ALL
     if output_fmt in ("pods",):
         return Select.ONE
-    if output_fmt in ("parents", "children"):
+    if output_fmt in ("parents", "children", "labels", "annotations"):
         return Select.YES
 
     return Select.YES
@@ -1978,9 +1973,7 @@ def print_resources(resources: Resources, kubectl: str):
 @click.option("--all", "all_containers", is_flag=True, help="Show logs for all containers in the pod.")
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
 @click.option("--multi-cluster", is_flag=True, help="List objects across the current cluster's sibling clusters.")
-@click.option(
-    "--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider."
-)
+@click.option("--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 @click.option("--command", "just_print", is_flag=True, help="Just print the final command that would have been run.")
 @click.option("--namespace", "-n", default="", help="Namespace of the pod.")  # HACK: shadow
@@ -2029,9 +2022,7 @@ def logs_cmd(
         raise ColorizedClickException("cannot use --guess with --all")
 
     clusters, namespace = get_clusters(kubectl, namespace, multi_cluster, cluster_groups, debug)
-    pods, containers = hydrate_multi_pod_and_multi_container_queries(
-        kubectl, pquery, cquery, namespace, all_namespaces, clusters, label, "", leader, guess, all_containers, debug
-    )
+    pods, containers = hydrate_multi_pod_and_multi_container_queries(kubectl, pquery, cquery, namespace, all_namespaces, clusters, label, "", leader, guess, all_containers, debug)
     cmd = get_kubectl_logs_command(ctx, kubectl, pods, containers, debug, since, follow, just_print)
     log(f"cmd: {cmd}", debug)
     cmd.run(just_print, kubectl)
@@ -2044,9 +2035,7 @@ def logs_cmd(
 @click.option("--guess", is_flag=True, help="Heuristically guess a pod's main container and automatically choose it.")
 @click.option("--kubectl", default=os.getenv("KUBA_KUBECTL", "kubectl"), help="Name or path of the kubectl binary to use.")
 @click.option("--multi-cluster", is_flag=True, help="List objects across the current cluster's sibling clusters.")
-@click.option(
-    "--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider."
-)
+@click.option("--clusters", "cluster_groups", default=os.getenv("KUBA_CLUSTERS", ""), callback=parse_cluster_groups, help="Comma-separated list of clusters to consider.")
 @click.option("--debug", is_flag=True, default=DEBUG, help="Print debug info to stderr.")
 @click.option("--command", "just_print", is_flag=True, help="Just print the final command that would have been run.")
 @click.option("--loud", is_flag=True, help="Log to stderr, even if --command is specified.")
@@ -2789,9 +2778,9 @@ def tolerates_taint(tolerations: list[JSONDict], taint: JSONDict) -> bool:
     return False
 
 
-def justify_fields(lines: list[tuple[str, ...]]) -> list[str]:
+def justify_fields(lines: list[tuple[str, ...]], *, max_col_lens: Optional[list[int]] = None) -> list[str]:
     """Justify the fields in the lines to be aligned."""
-    max_col_lens = [max(ansi_len(field) for field in col) for col in zip(*lines)]
+    max_col_lens = max_col_lens or [max(ansi_len(field) for field in col) for col in zip(*lines)]
     justified_lines = []
     for line in lines:
         justified = SEP.join(f"{str(field):<{max_col_len}}" for field, max_col_len in zip(line, max_col_lens))
@@ -2972,8 +2961,7 @@ def get_resources(
     do_warn = do_warn if len(clusters) == 1 else False
 
     cluster_to_resources = {
-        c: get_resources_for_cluster(kubectl, c, rtype, rquery, namespace, all_namespaces, False, label, select_fmt, debug, leader=leader, do_warn=do_warn)
-        for c in clusters
+        c: get_resources_for_cluster(kubectl, c, rtype, rquery, namespace, all_namespaces, False, label, select_fmt, debug, leader=leader, do_warn=do_warn) for c in clusters
     }
     if not any(cluster_to_resources.values()):
         leader_msg = f" leader " if leader else " "
@@ -3200,9 +3188,7 @@ def hydrate_resource_queries(
     # 1 => choose
     elif len(rqueries) == 1:
         rquery = rqueries.pop()
-        matching_resources = get_resources(
-            kubectl, "", rtype, rquery, namespace, all_namespaces, clusters, label, select_fmt, debug, leader=leader, do_warn=do_warn
-        )
+        matching_resources = get_resources(kubectl, "", rtype, rquery, namespace, all_namespaces, clusters, label, select_fmt, debug, leader=leader, do_warn=do_warn)
         return choose_resources(rtype, rquery, matching_resources, select)
     # 2+ => choose (special handling for getting and filtering)
     else:
@@ -3308,6 +3294,91 @@ def _fzf(cmd: list[str], items: list[str], item_name: str) -> list[str]:
         raise ColorizedClickException(f"no {item_name} selected")
 
     return lines
+
+
+def print_metadata_map(
+    ctx: click.Context,
+    kubectl: str,
+    rtype: str,
+    resources: Resources,
+    namespace: str,
+    field: str,
+    debug: bool,
+    escape_values: bool = getenv_bool("KUBA_ESCAPE_ANNOTATIONS", True),
+):
+    """Fetch and print labels or annotations as column-aligned key-value pairs."""
+    if not resources.names():
+        raise ColorizedClickException(f"received fewer than 1 {rtype} for {field} output type")
+
+    @dataclass
+    class Item:
+        cluster: str
+        namespace: str
+        name: str
+        kv: dict[str, str]
+
+    items: list[Item] = []
+    for c, by_ns in resources.by_cluster_by_namespace().items():
+        for n, rs in by_ns.items():
+            for r in rs:
+                name = r.name
+                cmd = remove_empty(
+                    [
+                        kubectl,
+                        "get",
+                        rtype,
+                        name,
+                        f"--namespace={n or namespace}" if (n or namespace) else "",
+                        f"--context={c}" if c else "",
+                        "--output=json",
+                        *ctx.args,
+                    ]
+                )
+
+                log(f"print_metadata_map: {cmd=}", debug)
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise ColorizedClickException(f"failed to get {rtype} {name} in {c or '-'}/{n or '-'}: {res.stderr.strip()}")
+
+                try:
+                    data = json.loads(res.stdout)
+                except json.JSONDecodeError as e:
+                    raise ColorizedClickException(f"error decoding JSON for {rtype} {name}: {e}")
+                metadata_map = data.get("metadata", {}).get(field, {}) or {}
+                if not metadata_map:
+                    warn(f"No {field} found for {rtype} {name} in {c or '-'}/{n or '-'}")
+                    continue
+
+                printable_metadata_map = {
+                    colorize(f"{CYAN}{k}{RESET}", kubectl=kubectl, out="stdout"): v.encode("unicode_escape").decode() if isinstance(v, str) and escape_values else str(v)
+                    for k, v in metadata_map.items()
+                }
+                items.append(Item(cluster=c, namespace=n, name=name, kv=printable_metadata_map))
+
+    max_col_lens = [
+        max((len(k) for item in items for k in item.kv.keys()), default=0),
+        max((len(v) for item in items for v in item.kv.values()), default=0),
+    ]
+    multi_cluster = len([item.cluster for item in items if item.cluster]) > 1
+    multi_namespace = len([item.namespace for item in items if item.namespace]) > 1
+    multi_resource = len(items) > 1
+
+    is_first = True
+    for item in items:
+        key = "/".join(
+            remove_empty(
+                [
+                    item.cluster or "-" if multi_cluster else "",
+                    item.namespace or "-" if multi_namespace else "",
+                    item.name if multi_resource else "",
+                ]
+            )
+        )
+        if key:
+            print_color(f"{'' if is_first else '\n'}{BOLD}{key}{RESET}", kubectl)
+        for justified_kv in justify_fields(sorted([(k, v) for k, v in item.kv.items()]), max_col_lens=max_col_lens):
+            print_color(justified_kv, kubectl)
+        is_first = False
 
 
 def get_kubectl_generic_action_commands(
@@ -3513,9 +3584,7 @@ def rectify_output_fmt(output_fmt: str) -> str:
     return "custom-columns=NAME:.metadata.name" if output_fmt == "name" else output_fmt
 
 
-def get_kubectl_logs_command(
-    ctx: click.Context, kubectl: str, pods: Resources, containers: list[str], debug: bool, since: str, follow: bool, just_print: bool
-) -> Command:
+def get_kubectl_logs_command(ctx: click.Context, kubectl: str, pods: Resources, containers: list[str], debug: bool, since: str, follow: bool, just_print: bool) -> Command:
     namespaces = set(p.namespace for p in pods)
     if len(namespaces) > 1:
         raise ColorizedClickException("cannot log multiple pods in different namespaces at once")
@@ -3682,12 +3751,10 @@ def container_scorer(pod: Resource, debug: bool) -> Callable[[str], float]:
     return score_container
 
 
-def handle_overrides(
-    args: list[str], rtype: str, n_resources: int, debug: bool, *, output_fmt: str = "", label_columns: str = "", sort_by: str = ""
-) -> list[str]:
+def handle_overrides(args: list[str], rtype: str, n_resources: int, debug: bool, *, output_fmt: str = "", label_columns: str = "", sort_by: str = "") -> list[str]:
     log(f"handle_overrides before: {args=}, {rtype=}, {n_resources=}, {output_fmt=}, {label_columns=}, {sort_by=}", debug)
 
-    if output_fmt != "name":  # guard because name is custom output format => uses custom columns
+    if output_fmt not in ("name", "labels", "annotations"):  # guard because these are custom output formats => use custom columns/handling
         if label_columns:
             args = [f"--label-columns={label_columns}"] + args
         elif rtype == "node" and output_fmt not in ("describe", "pods"):

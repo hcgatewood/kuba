@@ -116,6 +116,8 @@ Usage: kuba shellenv [OPTIONS]
       - (y)aml
       - (j)son
       - (f)x
+      - la(b)els
+      - anno(t)ations
       - (e)vents
       - lo(g)s
       - follow (l)ogs
