@@ -191,7 +191,7 @@ Options:
 
 ## See also
 
-- 🐙 [Jdd](https://github.com/hcgatewood/jdd): JSON diff diver — the time machine for your JSON
+- 🐙 [Jdd](https://github.com/hcgatewood/jdd): JSON diff diver, the time machine for your JSON
 - ⚡️ [Dotsync](https://github.com/hcgatewood/dotsync): dotfiles everywhere, instantly
 - ☁️ [Appa](https://github.com/hcgatewood/appa): Markdown previews with live reload
 - 🔮 [PDate](https://github.com/hcgatewood/pdate): human-readable dates and times
