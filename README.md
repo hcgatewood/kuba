@@ -1,6 +1,6 @@
 # Kuba: kubectl wizardry
 
-The magical kubectl companion with [fzf](https://github.com/junegunn/fzf), [fx](https://github.com/antonmedv/fx), [aliases](https://github.com/ahmetb/kubectl-aliases), new output formats, and more!
+The **magical kubectl companion** with [fzf](https://github.com/junegunn/fzf), [fx](https://github.com/antonmedv/fx), [aliases](https://github.com/ahmetb/kubectl-aliases), new output formats, and more!
 
 <p align="center"><img src="https://raw.githubusercontent.com/hcgatewood/kuba/main/assets/logo_transparent.png" alt="Kuba logo" width="300"/></p>
 
@@ -178,6 +178,61 @@ Options:
   --listq TEXT        Same as --list, but filter for the query.
   --debug             Print debug info to stderr.
   -h, --help          Show this message and exit.
+```
+
+## How I use Kuba
+
+I use Kuba every day to manage and debug production Kubernetes clusters.
+
+### PinCompute configs
+
+```shell
+source <(kuba shellenv --kubectl kubecolor)
+export KUBA_SHELLENV_RESOURCES='a=pinapp,b=pinterestjobset,g=pinteresttrainingjob,h=pinpod,i=pinterestdaemon,t=statefulpinapp,v=pinterestservice,w=pinterestcronjob'
+export KUBA_CLUSTERS='ndev=k8s-use1-shared-dev-m001,ndev*=fed-k8s-use1-shared-dev-m001-c00*,nstag=cr-m001system-staging-pcs001-use1,nstag*=cr-m001c00*-staging-pcs001-use1,nprod=cr-m001system-prod-pcp004-use1,nprod*=cr-m001c00*-prod-pcp005-use1,dev=cmp-test,dev*=fed-cmp-test-*,stag=k8s-use1-staging-shared-001,stag*=fed-k8s-use1-staging-shared-001-*,prod=k8s-use1-prod-shared-001,prod*=fed-k8s-use1-prod-shared-001-*,pii=k8s-use1-prod-pii-001'
+export KUBA_SSH_BASTION='*m001*|*staging*|*prod*=use1-cmp-sre-bastion-prod-0acc0141,*=devapp'
+export KUBA_SSH_USE_NAME=1
+```
+
+### Switch to a cluster and poke around
+
+```shell
+# Switch to muse namespace in new prod cluster 1
+$ knprod1 muse
+Switched to context "cr-m001c001-prod-pcp005-use1".
+Active namespace is "muse".
+Context "cr-m001c001-prod-pcp005-use1" modified.
+
+# What was the shortcut for PinApps again?
+$ klst pinapp
+a=pinapp
+t=statefulpinapp
+
+# Show all PinApps in muse namespace
+$ ka
+NAME             STATE        REPLICAS   UP-TO-DATE   READY   AGE
+pin-polaris-v2   Succeeding   2          2            2       8d
+pin-polaris-v3   Succeeding   10         10           10      3d
+
+# Investigate a particular PinApp
+$ kaf pin-polaris-v2
+
+# Show all child-resources of the PinApp
+$ kac pin-polaris-v2
+NAME                                                                     READY   STATUS           AGE
+PinApp/pin-polaris-v2                                                    -                        8d
+├── PersistentVolumeClaim/manas-gflags-pin-polaris-v2-75454c6987-665qq   -                        8d
+│   └── Pod/pin-polaris-v2-75454c6987-665qq                              9/9     Running          8d
+│       └── PodDisruptionBudget/pinapp-pin-polaris-v2                    -       SufficientPods   8d
+├── PersistentVolumeClaim/manas-gflags-pin-polaris-v2-75454c6987-ets93   -                        8d
+│   └── Pod/pin-polaris-v2-75454c6987-ets93                              9/9     Running          8d
+│       └── PodDisruptionBudget/pinapp-pin-polaris-v2                    -       SufficientPods   8d
+├── Pod/pin-polaris-v2-75454c6987-665qq                                  9/9     Running          8d
+├── Pod/pin-polaris-v2-75454c6987-ets93                                  9/9     Running          8d
+└── PodDisruptionBudget/pinapp-pin-polaris-v2                            -       SufficientPods   8d
+
+# Investigate a particular child pod
+$ kpf pinpolaris665  # fuzzy match
 ```
 
 ## Related
