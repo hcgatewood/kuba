@@ -97,11 +97,11 @@ def log(msg: str, debug: bool):
 trace_depth = 0
 
 
-def trace_fn(frame: FrameType, event: str, arg: any) -> Optional[Callable]:  # intentionally mutable default
+def trace_fn(frame: FrameType, event: str, arg: Any) -> Optional[Callable]:
     global trace_depth  # HACK: best way to handle indentation tracking
     filename = frame.f_code.co_filename
     if filename != FILENAME:
-        return
+        return None
     func = frame.f_code.co_name
 
     skip_funcs = [
@@ -119,7 +119,7 @@ def trace_fn(frame: FrameType, event: str, arg: any) -> Optional[Callable]:  # i
         "strip_ansi",
     ]
     if func in skip_funcs or func.startswith("<"):  # ignore unhelpful and synthetic functions
-        return
+        return None
 
     if event == "call":
         args = inspect.formatargvalues(*inspect.getargvalues(frame))
@@ -1860,9 +1860,9 @@ def _generic_kubectl_action(
     rqueries = [q.lower().removeprefix(f"{rtype}/") for q in rqueries]
 
     # UX: allow directly specifying a label query
-    if len(rqueries) == 1 and "=" in rqueries[0]:
+    if len(rqueries) == 1 and any(c in rqueries[0] for c in ("=", "!")):
         if label:
-            raise ColorizedClickException("cannot use --label with a single resource query containing '='")
+            raise ColorizedClickException("cannot use --label with a single resource query containing '=' or '!'")
         label = rqueries.pop()
     log(f"adjusted rqueries: {rtype=}, {rqueries=}, {label=}", debug)
 
