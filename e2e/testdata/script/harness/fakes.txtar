@@ -1,0 +1,75 @@
+# The fakes record their calls (see `calls`) and behave just enough like the real tools.
+
+# fzf: --query narrows and FZF_PICK picks.
+stdin candidates.txt
+exec fzf --ansi --multi --query=apl
+stdout -count=1 '^apple-1  1/1  Running$'
+! stdout banana
+env FZF_PICK=all
+stdin candidates.txt
+exec fzf --multi
+stdout -count=3 '^.+$'
+env FZF_PICK=cancel
+stdin candidates.txt
+! exec fzf
+env FZF_PICK=
+
+# The recorder prints canned output and exits as told.
+env E2E_OUT_KUBECTL_STERN='apple-1 main hello'
+exec kubectl-stern apple -n ns
+stdout '^apple-1 main hello$'
+env E2E_EXIT_SSH=255
+! exec ssh -J bastion fig
+
+calls
+cmp stdout want-calls.txt
+! calls jdd
+
+# A malformed exit code fails loudly rather than passing as 0.
+env E2E_EXIT_SSH=one
+! exec ssh fig
+stderr '^ssh \(fake\): bad E2E_EXIT_SSH "one"$'
+
+# kubectl-rec fakes verbs that need a kubelet (envtest has none) and runs the real kubectl for the rest.
+env E2E_OUT_KUBECTL='hello from apple'
+exec kubectl-rec --context=apple logs apple
+stdout '^hello from apple$'
+exec kubectl-rec config current-context
+stdout '^apple$'
+# A flag's value written as its own argument isn't mistaken for the verb.
+exec kubectl-rec --context apple -n kiwi logs apple
+stdout '^hello from apple$'
+calls kubectl
+stdout '^kubectl --context=apple logs apple$'
+stdout '^kubectl config current-context$'
+stdout '^kubectl --context apple -n kiwi logs apple$'
+
+# A fake that can't record its call fails, so `! calls` can't pass by mistake.
+env E2E_CALLS=
+! exec ssh fig
+stderr '^ssh \(fake\): recording call: E2E_CALLS not set$'
+env E2E_CALLS=$WORK/.calls
+
+# pty: the command sees a terminal on stdout.
+ptyexec sh -c 'test -t 1 && echo tty'
+stdout '^tty$'
+
+-- candidates.txt --
+apple-1  1/1  Running
+banana-1  0/1  CrashLoopBackOff
+apple-2  1/1  Running
+-- want-calls.txt --
+fzf --ansi --multi --query=apl
+| apple-1  1/1  Running
+| banana-1  0/1  CrashLoopBackOff
+| apple-2  1/1  Running
+fzf --multi
+| apple-1  1/1  Running
+| banana-1  0/1  CrashLoopBackOff
+| apple-2  1/1  Running
+fzf
+| apple-1  1/1  Running
+| banana-1  0/1  CrashLoopBackOff
+| apple-2  1/1  Running
+kubectl-stern apple -n ns
+ssh -J bastion fig

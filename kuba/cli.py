@@ -3256,11 +3256,11 @@ def fzf(query: str, items: list[str], item_name: str, header: str) -> str:
     cmd = remove_empty(
         [
             "fzf",
-            "--ansi",
             "--bind=shift-tab:up,tab:down",  # keep tab/shift-tab similar to multi-select
-            f"--prompt=Choose {item_name}: ",
             f"--query={query}",
+            f"--prompt=Choose {item_name}: ",
             f"--header={header}" if header else "",
+            "--ansi",
         ]
     )
     return _fzf(cmd, items, item_name).pop()
@@ -3271,11 +3271,11 @@ def fzf_multi(query: str, items: list[str], item_name: str, header: str) -> list
     cmd = remove_empty(
         [
             "fzf",
-            "--ansi",
             "--multi",
-            f"--prompt=Choose {item_name}: ",
             f"--query={query}",
+            f"--prompt=Choose {item_name}: ",
             f"--header={header}" if header else "",
+            "--ansi",
         ]
     )
     return _fzf(cmd, items, item_name)

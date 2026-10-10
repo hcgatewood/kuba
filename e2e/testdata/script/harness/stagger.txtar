@@ -1,0 +1,15 @@
+# kapply --stagger gives each file a later creation time than the one before. Within a second, kubectl's sort would
+# fall back to name order.
+
+kapply --stagger banana.yaml apple.yaml
+exec kubectl get configmap --sort-by=.metadata.creationTimestamp -o name
+rows configmap/banana configmap/apple
+
+-- banana.yaml --
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: banana}
+-- apple.yaml --
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: apple}

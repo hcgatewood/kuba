@@ -1,0 +1,65 @@
+# -A matches across every namespace, so it needs a server of its own.
+
+mkcluster apple
+kapply objects.yaml
+kuba get pod -A aple
+rows kiwi/apple-1 lemon/apple-2
+
+# -A wins over -n, as in kubectl.
+kuba get pod -A -n kiwi aple
+rows kiwi/apple-1 lemon/apple-2
+
+# -l filters across every namespace, with or without a query.
+kuba get pod -A -l app=apple
+rows kiwi/apple-1 lemon/apple-2
+kuba get pod -A -l app=banana bnana
+rows lemon/banana-1
+
+# The picker shows each pod's namespace, and acts on the pods in theirs.
+env FZF_PICK=all
+kuba get pod -A aple -o yaml
+stdout 'namespace: kiwi$'
+stdout 'namespace: lemon$'
+calls fzf
+cmp stdout want-fzf.txt
+env FZF_PICK=
+
+# -A means nothing to a cluster-scoped type. Python bug: it reads the first column as a namespace, so a query never
+# matches.
+kuba get ns -A
+rows default get-all-namespaces kiwi kube-node-lease kube-public kube-system lemon
+[impl:python] ! kuba get ns -A kiwi
+[impl:python] stderr 'no ns found'
+[impl:go] kuba get ns -A kiwi
+[impl:go] rows kiwi
+
+-- want-fzf.txt --
+fzf --multi --query=aple '--prompt=Choose pod: ' '--header=NAMESPACE  NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| kiwi  apple-1  0/1  Running  0  <age>
+| lemon  apple-2  0/1  Running  0  <age>
+-- objects.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1, namespace: kiwi, labels: {app: apple}}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2, namespace: lemon, labels: {app: apple}}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1, namespace: lemon, labels: {app: banana}}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

@@ -1,1 +1,5 @@
 dist/
+.cache/
+.venv/
+bin/
+__pycache__/

@@ -1,0 +1,64 @@
+# kapply writes status through the status subresource, since envtest has no kubelet to do it. Pods need no
+# ServiceAccount: envtest disables that admission plugin.
+
+kapply pods.yaml
+exec kubectl get pod apple-1 -o 'jsonpath={.status.phase} {.status.containerStatuses[0].ready} {.spec.nodeName}'
+stdout '^Running true fig$'
+exec kubectl get pods --no-headers
+stdout '^apple-1 +1/1 +Running +0 '
+stdout '^banana-1 +0/1 +CrashLoopBackOff +5 '
+
+# Leases and Events need no status. kapply puts both in $NS, and fills in the Event's involvedObject namespace to match,
+# which the API server requires.
+kapply lease-event.yaml
+exec kubectl get lease apple -o 'jsonpath={.metadata.namespace}/{.spec.holderIdentity}'
+stdout ^$NS/apple-1_1$
+exec kubectl get event banana-1.backoff -o 'jsonpath={.metadata.namespace}'
+stdout ^$NS$
+exec kubectl get events --no-headers
+stdout 'BackOff +pod/banana-1 +Back-off restarting failed container'
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  labels: {app: apple}
+spec:
+  nodeName: fig
+  containers: [{name: main, image: busybox}]
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, started: true,
+     state: {running: {startedAt: "2026-01-01T00:00:00Z"}}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+  labels: {app: banana}
+spec:
+  containers: [{name: main, image: busybox}]
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: false, restartCount: 5, started: false,
+     state: {waiting: {reason: CrashLoopBackOff}},
+     lastState: {terminated: {exitCode: 1, reason: Error}}}
+-- lease-event.yaml --
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: apple
+spec:
+  holderIdentity: apple-1_1
+---
+apiVersion: v1
+kind: Event
+metadata:
+  name: banana-1.backoff
+involvedObject: {kind: Pod, name: banana-1}
+reason: BackOff
+type: Warning
+message: Back-off restarting failed container

@@ -1,0 +1,136 @@
+# --multi-cluster searches the current cluster's siblings, as grouped by KUBA_CLUSTERS (here: every context), all in
+# the current context's namespace.
+
+mkcluster apple banana
+kapply -c apple apple-pods.yaml
+kapply -c banana banana-pods.yaml
+env KUBA_CLUSTERS='k*=*'
+kuba get pod aple --multi-cluster
+rows apple/apple-1 banana/apple-2
+
+# The rest is KUBA_CLUSTERS's grammar. These contexts share apple's server, so each lists apple-1, and the rows name
+# the contexts a fan-out reached. Sharing a server never makes contexts siblings; only KUBA_CLUSTERS does.
+mkcontext cherry cherry-1 cherry-2 old-cherry-1 donut-1 donut-2
+exec kubectl config use-context cherry-1
+
+# Each entry groups the contexts its pattern matches. A pattern matches whole names, and * can match nothing.
+env KUBA_CLUSTERS='c*=cherry*,d*=donut-*'
+kuba get pod apple-1 --multi-cluster
+rows cherry/apple-1 cherry-1/apple-1 cherry-2/apple-1
+env KUBA_CLUSTERS=' c*=cherry-* , d*=donut-* '
+kuba get pod apple-1 --multi-cluster
+rows cherry-1/apple-1 cherry-2/apple-1
+
+# A current context in no group has no siblings, so --multi-cluster fails rather than search it alone and look complete.
+env KUBA_CLUSTERS='d*=donut-*'
+! kuba get pod apple-1 --multi-cluster
+exitcode 1
+stderr cherry-1
+[impl:go] stderr KUBA_CLUSTERS
+
+# Siblings are searched in the starting context's namespace, not their own; or -n picks one for them all.
+env KUBA_CLUSTERS='c*=cherry-*'
+exec kubectl config set-context cherry-2 --namespace=kiwi
+kuba get pod apple-1 --multi-cluster
+rows cherry-1/apple-1 cherry-2/apple-1
+exec kubectl config set-context cherry-2 --namespace=$NS
+kuba get pod -n kiwi aple --multi-cluster
+rows cherry-1/apple-kiwi cherry-2/apple-kiwi
+
+# A context in several entries is a sibling of every context they match. Python bug: it keeps only its last entry's
+# group, though the other entries' contexts still count it as their sibling.
+env KUBA_CLUSTERS='x*=*-1,c*=cherry-*'
+kuba get pod apple-1 --multi-cluster
+[impl:python] rows cherry-1/apple-1 cherry-2/apple-1
+[impl:go] rows cherry-1/apple-1 cherry-2/apple-1 donut-1/apple-1 old-cherry-1/apple-1
+exec kubectl config use-context donut-1
+kuba get pod apple-1 --multi-cluster
+rows cherry-1/apple-1 donut-1/apple-1 old-cherry-1/apple-1
+exec kubectl config use-context cherry-1
+
+# Only * and \ are special. Everything else matches itself, since a context name can hold any character. Python bug:
+# patterns are regexes with | deleted, so . matches anything, [ crashes, and | vanishes.
+env KUBA_CLUSTERS='c*=cherry.*'
+[impl:python] kuba get pod apple-1 --multi-cluster
+[impl:python] rows cherry-1/apple-1 cherry-2/apple-1
+[impl:go] ! kuba get pod apple-1 --multi-cluster
+[impl:go] exitcode 1
+[impl:go] stderr cherry-1
+env KUBA_CLUSTERS='c*=cherry-[*'
+! kuba get pod apple-1 --multi-cluster
+exitcode 1
+[impl:python] stderr 'unterminated character set'
+[impl:go] stderr cherry-1
+env KUBA_CLUSTERS='c*=cherry|-*'
+[impl:python] kuba get pod apple-1 --multi-cluster
+[impl:python] rows cherry-1/apple-1 cherry-2/apple-1
+[impl:go] ! kuba get pod apple-1 --multi-cluster
+[impl:go] exitcode 1
+[impl:go] stderr cherry-1
+
+# A backslash before punctuation makes it literal, so regex escapes like \- in today's patterns still work, and \\
+# spells out a backslash in a name. Go rejects one before a letter or digit, like regex's \d.
+env KUBA_CLUSTERS='c*=cherry\-*'
+kuba get pod apple-1 --multi-cluster
+rows cherry-1/apple-1 cherry-2/apple-1
+env KUBA_CLUSTERS='c*=cherry-\d*'
+[impl:python] kuba get pod apple-1 --multi-cluster
+[impl:python] rows cherry-1/apple-1 cherry-2/apple-1
+[impl:go] ! kuba get pod apple-1 --multi-cluster
+[impl:go] exitcode 1
+[impl:go] stderr '\\d'
+mkcontext 'egg\1' 'egg\2'
+exec kubectl config use-context 'egg\1'
+env KUBA_CLUSTERS='e*=egg\\*'
+kuba get pod apple-1 --multi-cluster
+rows 'egg\1/apple-1' 'egg\2/apple-1'
+exec kubectl config use-context cherry-1
+
+# A malformed KUBA_CLUSTERS breaks only commands that read it. Python parses it for every command that takes
+# --clusters, and exits 2 as if the command line were wrong. Go exits 1, since the command line is fine.
+env KUBA_CLUSTERS='nonsense'
+[impl:python] ! kuba get pod apple-1
+[impl:python] exitcode 2
+[impl:go] kuba get pod apple-1
+[impl:go] rows apple-1
+! kuba get pod apple-1 --multi-cluster
+[impl:python] exitcode 2
+[impl:go] exitcode 1
+stderr nonsense
+
+# Python bug: it takes a context's name from the CLUSTER column of kubectl config get-contexts on every row but the
+# current one, so a context whose cluster entry is named otherwise never joins a group.
+exec kubectl config set-context cherry-3 --cluster=apple --user=apple --namespace=$NS
+env KUBA_CLUSTERS='c*=cherry-*'
+kuba get pod apple-1 --multi-cluster
+[impl:python] rows cherry-1/apple-1 cherry-2/apple-1
+[impl:go] rows cherry-1/apple-1 cherry-2/apple-1 cherry-3/apple-1
+
+-- apple-pods.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-kiwi, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+-- banana-pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

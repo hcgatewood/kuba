@@ -1,0 +1,41 @@
+# A fuzzy query matches pod names that contain it as a subsequence.
+
+kapply pods.yaml
+
+kuba get pod bnana
+cmp stdout want-bnana.txt
+
+# Several matches all print; get's default select mode allows many, so fzf stays out of it.
+kuba get pod aple
+rows apple-1 apple-2
+! calls fzf
+
+-- want-bnana.txt --
+banana-1  0/1  CrashLoopBackOff  5  <age>
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1, labels: {app: apple}}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses: [{name: main, image: busybox, imageID: "", ready: true, restartCount: 0,
+    state: {running: {startedAt: "2026-01-01T00:00:00Z"}}}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2, labels: {app: apple}}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses: [{name: main, image: busybox, imageID: "", ready: true, restartCount: 0,
+    state: {running: {startedAt: "2026-01-01T00:00:00Z"}}}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1, labels: {app: banana}}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses: [{name: main, image: busybox, imageID: "", ready: false, restartCount: 5,
+    state: {waiting: {reason: CrashLoopBackOff}}}]

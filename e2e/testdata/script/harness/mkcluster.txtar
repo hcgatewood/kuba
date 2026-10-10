@@ -1,0 +1,55 @@
+# `mkcluster` adds contexts, each on a fresh API server of its own, for multi-cluster scripts. apple isn't named, so it
+# stays on the shared server, along with anything already applied to it. Every context defaults to $NS.
+
+kapply apple-pod.yaml
+mkcluster banana cherry
+exec kubectl config get-contexts -o name
+cmp stdout want-contexts.txt
+exec kubectl config view -o 'jsonpath={range .contexts[*]}{.context.namespace}{"\n"}{end}'
+stdout -count=3 '^harness-mkcluster$'
+
+# Three distinct servers: normalizing names each address after its context, so a shared one would repeat a name
+ptyexec kubectl config view -o 'jsonpath={range .clusters[*]}{.cluster.server}{"\n"}{end}'
+cmp stdout want-servers.txt
+
+# apple kept its server, so its pod is still there; banana's pod stays on banana
+kapply -c banana banana-pod.yaml
+exec kubectl --context apple get pods -o name
+stdout '^pod/apple-1$'
+! stdout banana
+exec kubectl --context banana get pods -o name
+stdout '^pod/banana-1$'
+! stdout apple
+
+# mkcontext adds a context on an existing server, with cluster and user entries of its own name. The server keeps its
+# first name in normalized output.
+mkcontext -c banana banana-2
+exec kubectl --context banana-2 get pods -o name
+stdout '^pod/banana-1$'
+exec kubectl config view -o 'jsonpath={.contexts[?(@.name=="banana-2")].context.cluster}'
+stdout '^banana-2$'
+ptyexec kubectl config view -o 'jsonpath={.clusters[?(@.name=="banana-2")].cluster.server}'
+stdout '^https://<banana>/$'
+
+-- want-contexts.txt --
+apple
+banana
+cherry
+-- want-servers.txt --
+https://<apple>/
+https://<banana>/
+https://<cherry>/
+-- apple-pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+spec:
+  containers: [{name: main, image: busybox}]
+-- banana-pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+spec:
+  containers: [{name: main, image: busybox}]
