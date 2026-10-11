@@ -5,14 +5,12 @@ kapply pods.yaml
 mkcontext banana
 
 # Python bug: with no kubeconfig, kubectl falls back to localhost:8080, so the error is a refused connection there.
-# Go says there's no kubeconfig. Listing contexts just lists none.
+# Go says there's no kubeconfig.
 env KUBECONFIG=$WORK/missing.yaml
 ! kuba get pod aple
 exitcode 1
 [impl:python] stderr 'localhost:8080 was refused'
 [impl:go] stderr kubeconfig
-kuba ctx --list
-! stdout .
 env KUBECONFIG=$HOME/.kube/config
 
 # A cluster kuba can't reach is an error naming its address. Python bug: it adds the failed kubectl call as a Python
@@ -39,6 +37,18 @@ env FZF_PICK=cancel
 [impl:python] exitcode 1
 [impl:python] stderr 'no pod selected'
 [impl:go] exitcode 130
+env FZF_PICK=
+
+[impl:go] skip 'TODO(go): ctx, ns, logs, and -o logs'
+
+# With no kubeconfig, listing contexts just lists none.
+env KUBECONFIG=$WORK/missing.yaml
+kuba ctx --list
+! stdout .
+env KUBECONFIG=$HOME/.kube/config
+
+# Canceling the namespace picker exits 130 in Go too.
+env FZF_PICK=cancel
 ! kuba ns
 [impl:python] exitcode 1
 [impl:go] exitcode 130

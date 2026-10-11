@@ -71,7 +71,7 @@ exec kubectl --kubeconfig=banana.kubeconfig config use-context banana
 [impl:python] stdout ' --as=nobody'
 [impl:go] ! kuba get pod aple --as=nobody --command
 [impl:go] exitcode 1
-[impl:go] stderr Forbidden
+[impl:go] stderr 'pods is forbidden: User "nobody" cannot list'
 
 # A set-based selector reaches kubectl intact. Python bug: its printed command leaves the selector unquoted, so a shell
 # reads the parentheses as syntax.

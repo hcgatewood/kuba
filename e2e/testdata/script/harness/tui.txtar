@@ -1,0 +1,20 @@
+# tui runs a command on a terminal, types into it, and reads its screen back.
+
+[impl:python] skip 'tui drives the Go kuba''s terminal UIs'
+
+tui start sh -c 'printf "name? "; read name; echo "hi $name"; exit 3'
+tui wait '^name\?'
+tui type apple
+tui key enter
+! tui exit
+exitcode 3
+cmp stdout want-hi.txt
+
+# The command sees a terminal of its own, sized like a roomy window.
+tui start sh -c 'test -t 0 && test -t 1 && stty size'
+tui exit
+stdout '^16 100$'
+
+-- want-hi.txt --
+name? apple
+hi apple

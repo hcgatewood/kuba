@@ -1,0 +1,79 @@
+# Request budgets: the most API requests a get may send each cluster, discovery excluded, counted from the debug log.
+# Discovery is free once kubectl's cache is warm, and a listing handoff needs none even cold. get/paging covers a
+# listing of several pages.
+
+[impl:python] skip 'request budgets are Go-only'
+env KUBA_DEBUG=1
+kapply pods.yaml
+
+# A listing handoff leaves the lookup to kubectl, which warms the discovery cache for the rest.
+kuba get pod --sort-by=.metadata.name
+reqs 0
+reqs --discovery 0
+
+# A native listing is one LIST, label columns included, as each row carries its object's labels.
+kuba get pod
+rows apple-1 apple-2 banana-1
+reqs 1
+reqs --discovery 0
+kuba get pod -L app --show-labels
+stdout 'app=apple,tier=web$'
+reqs 1
+
+# A lookup sends the name's GET and the LIST together, so an exact name and a partial one cost the same.
+kuba get pod apple-1
+rows apple-1
+reqs 2
+kuba get pod bnana
+rows banana-1
+reqs 2
+
+# A selector rules out the exact GET, leaving the filtered LIST.
+kuba get pod aple -l tier=web
+rows apple-1
+reqs 1
+
+# Handing the match to kubectl adds nothing.
+kuba get pod apple-1 -o yaml
+stdout '^  name: apple-1$'
+reqs 2
+
+# Budgets are per cluster: a fan-out sends each sibling its own.
+mkcontext cherry
+env KUBA_CLUSTERS='k*=*'
+kuba get pod bnana --multi-cluster
+rows apple/banana-1 cherry/banana-1
+reqs 2
+env KUBA_CLUSTERS=
+
+# With a cold cache, a lookup runs discovery once; the next one runs none.
+rm $HOME/.kube/cache
+kuba get pod bnana
+stderr 'msg=request .*discovery=true'
+kuba get pod bnana
+reqs --discovery 0
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  labels: {app: apple, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-2
+  labels: {app: apple, tier: db}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+  labels: {app: banana, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

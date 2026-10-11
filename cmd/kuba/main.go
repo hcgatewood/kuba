@@ -1,15 +1,17 @@
-// Command kuba is the magical kubectl companion.
 package main
 
 import (
-	"fmt"
 	"os"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
+	"github.com/hcgatewood/kuba/internal/cli"
 )
 
-// version is set by release builds via -ldflags "-X main.version=..."; everything else reports dev.
+// version is set at link time via -ldflags "-X main.version=...", for builds with no git to read; cli.Main falls back
+// to the build info's version, then dev.
 var version = "dev"
 
 func main() {
-	fmt.Fprintf(os.Stderr, "kuba %s: the Go port has no commands yet\n", version)
-	os.Exit(2)
+	os.Exit(cli.Main(os.Args[1:], version))
 }

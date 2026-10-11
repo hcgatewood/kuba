@@ -3,12 +3,23 @@
 
 mkcluster apple
 kapply --stagger fig-2.yaml fig-1.yaml fig-3.yaml
+
+# These nodes have no kubelet, so their VERSION is empty. Python fills empty cells with -, while Go leaves them blank,
+# as kubectl does.
 kuba get node
-cmp stdout want.txt
+[impl:python] cmp stdout want.txt
+[impl:go] cmp stdout want.go.txt
 kuba get node fig
 rows fig-3 fig-1 fig-2
 kuba get node -o wide
-cmp stdout want-wide.txt
+[impl:python] cmp stdout want-wide.txt
+[impl:go] cmp stdout want-wide.go.txt
+
+# Go keeps the node defaults under -L, adding only the columns they lack. Python hands -L to kubectl, which lists the
+# nodes oldest first, with just the columns asked for.
+kuba get node -L kubernetes.io/hostname,node.kubernetes.io/instance-type
+[impl:python] cmp stdout want-label-columns.txt
+[impl:go] cmp stdout want-label-columns.go.txt
 
 # Python bug: the listing defaults leak into commands that aren't listings.
 kuba get node fig-1 -o yaml --command
@@ -20,10 +31,26 @@ kuba get node fig-1 -o yaml --command
 fig-3  NotReady  <none>  <age>  -  m5.large
 fig-1  Ready  <none>  <age>  -  c5.xlarge
 fig-2  Ready  <none>  <age>  -  m5.large
+-- want.go.txt --
+fig-3  NotReady  <none>  <age>  m5.large
+fig-1  Ready  <none>  <age>  c5.xlarge
+fig-2  Ready  <none>  <age>  m5.large
 -- want-wide.txt --
 fig-3  NotReady  <none>  <age>  -  10.0.0.3  <none>  <unknown>  <unknown>  <unknown>  m5.large  fig-3.example.com
 fig-1  Ready  <none>  <age>  -  10.0.0.1  <none>  <unknown>  <unknown>  <unknown>  c5.xlarge  fig-1.example.com
 fig-2  Ready  <none>  <age>  -  10.0.0.2  <none>  <unknown>  <unknown>  <unknown>  m5.large  fig-2.example.com
+-- want-wide.go.txt --
+fig-3  NotReady  <none>  <age>  10.0.0.3  <none>  <unknown>  <unknown>  <unknown>  m5.large  fig-3.example.com
+fig-1  Ready  <none>  <age>  10.0.0.1  <none>  <unknown>  <unknown>  <unknown>  c5.xlarge  fig-1.example.com
+fig-2  Ready  <none>  <age>  10.0.0.2  <none>  <unknown>  <unknown>  <unknown>  m5.large  fig-2.example.com
+-- want-label-columns.txt --
+fig-2  Ready  <none>  <age>  fig-2.example.com  m5.large
+fig-1  Ready  <none>  <age>  fig-1.example.com  c5.xlarge
+fig-3  NotReady  <none>  <age>  fig-3.example.com  m5.large
+-- want-label-columns.go.txt --
+fig-3  NotReady  <none>  <age>  m5.large  fig-3.example.com
+fig-1  Ready  <none>  <age>  c5.xlarge  fig-1.example.com
+fig-2  Ready  <none>  <age>  m5.large  fig-2.example.com
 -- want-yaml-command.txt --
 kubectl get node fig-1 --output=yaml --no-headers --sort-by=.metadata.creationTimestamp --label-columns=node.kubernetes.io/instance-type
 -- fig-1.yaml --

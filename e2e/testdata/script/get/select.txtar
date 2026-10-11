@@ -37,9 +37,12 @@ env FZF_PICK=all
 kuba get pod APLE --select -o name
 rows apple-db apple-web
 
+# Canceling the picker exits 130 in Go, as Ctrl-C does, without an error. Python reports it as an error.
 env FZF_PICK=cancel
 ! kuba get pod aple -o labels
-stderr 'no pod selected'
+[impl:python] stderr 'no pod selected'
+[impl:go] exitcode 130
+[impl:go] ! stderr .
 
 -- want-banana-web-labels.txt --
 app  banana

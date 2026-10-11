@@ -1,0 +1,102 @@
+# With KUBA_FZF unset, the Go kuba picks with the fzf built into it, so picking needs no fzf install: typing narrows
+# the matches, shift-tab marks several, Enter picks, and Esc cancels. The user's FZF_DEFAULT_OPTS applies, as it does
+# to the fzf binary.
+
+[impl:python] skip 'Python runs the fzf on PATH'
+
+env KUBA_FZF=
+kapply pods.yaml
+
+# Screens lose their colors, so a plain pointer, marker, and gutter keep the cursor and marks visible.
+env FZF_DEFAULT_OPTS='--pointer=@ --marker=+ --gutter=" "'
+
+# The matches list under the table's header, with the query typed in.
+tui start kuba get pod aple --select -o name
+tui wait '2/2'
+tui screen
+cmp stdout want-start.txt
+
+# Typing narrows them, and Enter picks the one under the cursor.
+tui type ' web'
+tui wait '1/2'
+tui key enter
+tui exit
+cmp stdout want-apple-web.txt
+
+# Shift-tab marks the match under the cursor and moves up to the next, and Enter picks every marked one.
+tui start kuba get pod --select -o name
+tui wait '3/3'
+tui key btab btab
+tui wait '\(2\)'
+tui screen
+cmp stdout want-marked.txt
+tui key enter
+tui exit
+cmp stdout want-two.txt
+
+# --one picks just one, and tab and shift-tab move the cursor rather than marking.
+tui start kuba get pod aple --one -o name
+tui wait 'Choose pod: aple'
+tui key btab enter
+tui exit
+cmp stdout want-apple-web.txt
+
+# Esc cancels, exiting 130 as Ctrl-C does.
+tui start kuba get pod aple --select -o name
+tui wait 'Choose pod: aple'
+tui key esc
+! tui exit
+exitcode 130
+
+# FZF_DEFAULT_OPTS restyles the picker, and output options it adds don't confuse the pick.
+env FZF_DEFAULT_OPTS='--pointer=% --print-query'
+tui start kuba get pod aple --select -o name
+tui wait '^% apple'
+tui key enter
+tui exit
+cmp stdout want-apple-db.txt
+
+-- want-start.txt --
+  apple-web  0/1  Running  0  <age>
+@ apple-db  0/1  Running  0  <age>
+  NAME  READY  STATUS  RESTARTS  AGE
+  2/2 (0) ─────────────────────────────────────────────────────────────────────────────────────────
+Choose pod: aple
+-- want-apple-web.txt --
+apple-web
+-- want-apple-db.txt --
+apple-db
+-- want-two.txt --
+apple-db
+apple-web
+-- want-marked.txt --
+@ banana-web  0/1  Pending  0  <age>
+ +apple-web  0/1  Running  0  <age>
+ +apple-db  0/1  Running  0  <age>
+  NAME  READY  STATUS  RESTARTS  AGE
+  3/3 (2) ─────────────────────────────────────────────────────────────────────────────────────────
+Choose pod:
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-web
+  labels: {app: apple, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-db
+  labels: {app: apple, tier: db}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-web
+  labels: {app: banana, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

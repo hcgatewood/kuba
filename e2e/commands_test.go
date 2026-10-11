@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -35,9 +36,11 @@ func scriptCommands() map[string]func(*testscript.TestScript, bool, []string) {
 		"mkcluster": cmdMkcluster,
 		"mkcontext": cmdMkcontext,
 		"ptyexec":   cmdPtyexec,
+		"reqs":      cmdReqs,
 		"rows":      cmdRows,
 		"shell":     cmdShell,
 		"shellenv":  cmdShellenv,
+		"tui":       cmdTui,
 	}
 }
 
@@ -97,7 +100,7 @@ func cmdCurrent(ts *testscript.TestScript, neg bool, args []string) {
 	}
 }
 
-// cmdExitcode asserts the exit code of the last kuba, ptyexec, or shell.
+// cmdExitcode asserts the exit code of the last kuba, ptyexec, shell, or tui exit.
 //
 // Usage: exitcode N
 func cmdExitcode(ts *testscript.TestScript, neg bool, args []string) {
@@ -169,11 +172,13 @@ func runNormalized(ts *testscript.TestScript, neg, tty bool, name string, args .
 	if err != nil {
 		ts.Fatalf("%s: %v", name, err)
 	}
+	stderr := ts.ReadFile("stderr")
 	st.lastExit = code
+	st.lastStderr = stderr
 
 	n := st.normalizer(tty)
 	_, _ = fmt.Fprint(ts.Stdout(), n.apply(ts.ReadFile("stdout")))
-	_, _ = fmt.Fprint(ts.Stderr(), n.apply(ts.ReadFile("stderr")))
+	_, _ = fmt.Fprint(ts.Stderr(), n.apply(stderr))
 
 	switch {
 	case code != 0 && !neg:
@@ -272,6 +277,61 @@ func cmdPtyexec(ts *testscript.TestScript, neg bool, args []string) {
 	runNormalized(ts, neg, true, ptyCommand, args...)
 }
 
+// cmdReqs asserts how many API requests each kubeconfig context sent during the last kuba, counted from its debug log:
+// at most N, discovery excluded (or with --discovery, discovery alone).
+//
+// Usage: reqs [--discovery] N
+//
+// Example:
+//
+//	env KUBA_DEBUG=1
+//	kuba get pod apple-1
+//	reqs 2
+//
+// The run needs KUBA_DEBUG=1; one with no debug log fails rather than pass as zero requests. A canceled request still
+// counts, since the server may have seen it, e.g. the losing half of a GET-or-LIST race.
+func cmdReqs(ts *testscript.TestScript, neg bool, args []string) {
+	fs := flag.NewFlagSet("reqs", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	discovery := fs.Bool("discovery", false, "")
+	if neg || fs.Parse(args) != nil || fs.NArg() != 1 {
+		ts.Fatalf("usage: reqs [--discovery] N")
+	}
+	limit, err := strconv.Atoi(fs.Arg(0))
+	ts.Check(err)
+
+	reqs, ok := requestsByContext(state(ts).lastStderr, *discovery)
+	if !ok {
+		ts.Fatalf("the last kuba wrote no debug log; set KUBA_DEBUG=1")
+	}
+	for _, name := range slices.Sorted(maps.Keys(reqs)) {
+		if lines := reqs[name]; len(lines) > limit {
+			ts.Fatalf("context %s sent %d requests, want at most %d:\n%s", name, len(lines), limit, strings.Join(lines, ""))
+		}
+	}
+}
+
+// requestsByContext groups a debug log's request lines by kubeconfig context, keeping either the discovery requests
+// or the rest.
+//
+// ok is false if the log has no debug lines at all.
+func requestsByContext(log string, discovery bool) (reqs map[string][]string, ok bool) {
+	reqs = map[string][]string{} // kubeconfig context -> one debug log line per request it sent
+	for line := range strings.Lines(log) {
+		if !strings.HasPrefix(line, "level=DEBUG ") {
+			continue
+		}
+		ok = true
+		if !strings.Contains(line, " msg=request ") || !strings.Contains(line, " discovery="+strconv.FormatBool(discovery)) {
+			continue
+		}
+		_, rest, _ := strings.Cut(line, " context=")
+		name, _, _ := strings.Cut(rest, " ")
+		reqs[name] = append(reqs[name], line)
+	}
+	return reqs, ok
+}
+
 // cmdRows asserts the last command's stdout rows, in order, going by each row's first column.
 //
 // Usage: rows ROW...
@@ -323,6 +383,35 @@ func rowsLine(rows []string) string {
 		return "! stdout ."
 	}
 	return shellescape.QuoteCommand(append([]string{"rows"}, rows...))
+}
+
+func TestRequestsByContext(t *testing.T) {
+	const (
+		appleList  = `level=DEBUG msg=request context=apple verb=GET path=/api/v1/pods query="limit=500" status=200 latency=3ms discovery=false` + "\n"
+		appleGet   = `level=DEBUG msg=request context=apple verb=GET path=/api/v1/pods/banana query="" status=canceled latency=1ms discovery=false` + "\n"
+		appleAPI   = `level=DEBUG msg=request context=apple verb=GET path=/api query="" status=200 latency=2ms discovery=true` + "\n"
+		bananaList = `level=DEBUG msg=request context=banana verb=GET path=/api/v1/pods query="limit=500" status=200 latency=3ms discovery=false` + "\n"
+		action     = `level=DEBUG msg=action command="kubectl get pod --sort-by=.metadata.name"` + "\n"
+	)
+	tests := []struct {
+		name      string
+		log       string
+		discovery bool
+		want      map[string][]string
+		wantOK    bool
+	}{
+		{"grouped by context", appleList + bananaList + appleGet, false, map[string][]string{"apple": {appleList, appleGet}, "banana": {bananaList}}, true},
+		{"discovery apart", appleList + appleAPI, true, map[string][]string{"apple": {appleAPI}}, true},
+		{"debug log with no requests", action, false, map[string][]string{}, true},
+		{"no debug log", "Error: pods \"apple\" not found\n", false, map[string][]string{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := requestsByContext(tt.log, tt.discovery)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantOK, ok)
+		})
+	}
 }
 
 func TestListedRows(t *testing.T) {

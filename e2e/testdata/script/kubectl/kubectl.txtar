@@ -1,0 +1,50 @@
+# kuba kubectl runs kubectl with its output colored by the kubecolor built into the Go kuba, and handoffs run it unless
+# --kubectl or KUBA_KUBECTL picks another. Color follows kubecolor's settings, so NO_COLOR turns it off.
+
+[impl:python] skip 'Python hands off to KUBA_KUBECTL alone'
+env KUBA_KUBECTL=
+kapply pods.yaml
+
+# Handoffs print it, and run it.
+kuba get pod apple -o yaml --command
+stdout '^kuba kubectl get pod apple --output=yaml$'
+kuba get pod apple -o jsonpath={.status.phase}
+stdout '^Running$'
+
+# On a terminal, kubectl's output is colored, handoffs included.
+ptyexec kuba kubectl get pod apple -o yaml
+stdout '{.+}kind'
+ptyexec kuba get pod apple -o yaml
+stdout '{.+}kind'
+
+# Off a terminal, or with NO_COLOR, it isn't. exec keeps the raw output, where kuba would strip ANSI codes.
+exec kuba kubectl get pod apple -o yaml
+! stdout '\x1b\['
+stdout '^kind: Pod$'
+env NO_COLOR=1
+ptyexec kuba get pod apple -o yaml
+! stdout '{/}'
+env NO_COLOR=
+
+# kubectl's own flags pass through, and its exit code and errors come back.
+kuba kubectl get pod apple --output=name
+stdout '^pod/apple$'
+! kuba kubectl get pod cherry
+exitcode 1
+stderr 'pods "cherry" not found'
+
+# --kubectl and KUBA_KUBECTL pick another kubectl, e.g. kubecolor, or plain kubectl to go without color.
+kuba get pod apple -o yaml --kubectl kubecolor --command
+stdout '^kubecolor get pod apple --output=yaml$'
+env KUBA_KUBECTL=kubectl
+kuba get pod apple -o yaml --command
+stdout '^kubectl get pod apple --output=yaml$'
+ptyexec kuba get pod apple -o yaml
+! stdout '{/}'
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

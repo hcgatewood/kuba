@@ -1,8 +1,3 @@
-// Package e2e is kuba's black-box suite: testscript scripts that run against either implementation.
-//
-// KUBA_IMPL picks the implementation under test (python or go); without it TestScript skips, so `go test ./...` stays
-// a unit run. Scripts share one API server, each in its own namespace, and those that see cluster-wide state start with
-// `mkcluster apple` to get a server of their own.
 package e2e
 
 import (

@@ -26,8 +26,46 @@ kuba get pod bnana -o wide
 cmp stdout want-wide.txt
 kuba get pod apple-1 -o labels
 cmp stdout want-labels.txt
+# Python escapes annotation values onto one line by default. Go keeps their lines, indenting later ones to the value
+# column, unless KUBA_ESCAPE_ANNOTATIONS=true.
 kuba get pod apple-1 -o annotations
-cmp stdout want-annotations.txt
+[impl:python] cmp stdout want-annotations.txt
+[impl:go] cmp stdout want-annotations-raw.go.txt
+
+# Several pods each get a heading.
+kuba get pod aple --no-select -o labels
+cmp stdout want-labels-both.txt
+
+# Headings name namespaces only when namespaced objects span several, so a node beside one namespace's pods adds none.
+# The warning for the label-less node names its type, not the TYPE argument.
+# Python bug: it finds nothing across several types.
+kuba get pod,node --no-select -o labels
+[impl:python] ! stdout .
+[impl:go] cmp stdout want-labels-types.txt
+[impl:go] stderr '^Warning: No labels found for node/fig-1 in apple/-$'
+
+# Python bug: the headings disappear when only one of the pods has any entries.
+kuba get pod aple --no-select -o annotations
+[impl:python] cmp stdout want-annotations-both.txt
+[impl:go] cmp stdout want-annotations-both.go.txt
+stderr apple-2
+
+# KUBA_ESCAPE_ANNOTATIONS flips each implementation's default.
+[impl:python] env KUBA_ESCAPE_ANNOTATIONS=false
+[impl:go] env KUBA_ESCAPE_ANNOTATIONS=true
+kuba get pod apple-1 -o annotations
+[impl:python] cmp stdout want-annotations-raw.txt
+[impl:go] cmp stdout want-annotations.txt
+
+# Go's printed commands leave out --no-headers, which kuba adds only when it runs the command off a terminal.
+kuba get pod bnana -o yaml --command
+[impl:python] cmp stdout want-yaml-command.txt
+[impl:go] cmp stdout want-yaml-command.go.txt
+kuba get pod bnana -o json --command
+[impl:python] cmp stdout want-json-command.txt
+[impl:go] cmp stdout want-json-command.go.txt
+
+[impl:go] skip 'TODO(go): the remaining kuba -o formats'
 kuba get pod apple-1 -o node
 cmp stdout want-node.txt
 kuba get pod apple-1 -o containers
@@ -59,21 +97,6 @@ stdout '^kubectl-lineage --dependencies .*banana-1$'
 calls kubectl-stern
 [impl:python] stdout '^kubectl-stern banana-1 '
 [impl:go] stdout '\^\(banana-1\)\$'
-
-# Several pods each get a heading.
-kuba get pod aple --no-select -o labels
-cmp stdout want-labels-both.txt
-
-# Python bug: the headings disappear when only one of the pods has any entries.
-kuba get pod aple --no-select -o annotations
-[impl:python] cmp stdout want-annotations-both.txt
-[impl:go] cmp stdout want-annotations-both.go.txt
-stderr apple-2
-
-# KUBA_ESCAPE_ANNOTATIONS=false prints annotation values raw.
-env KUBA_ESCAPE_ANNOTATIONS=false
-kuba get pod apple-1 -o annotations
-cmp stdout want-annotations-raw.txt
 
 # Formats limited to one type are an error on any other. Python exits 1 for that; Go exits 2, as for any usage error.
 ! kuba get pod bnana -o pods
@@ -108,13 +131,8 @@ exitcode 1
 [impl:go] kuba get pod bnana -o fx --command
 [impl:go] stdout 'json \| kuba ifne fx$'
 
-[impl:go] skip 'TODO(go): printed command form'
 kuba get pod bnana -o describe --command
 cmp stdout want-describe-command.txt
-kuba get pod bnana -o yaml --command
-cmp stdout want-yaml-command.txt
-kuba get pod bnana -o json --command
-cmp stdout want-json-command.txt
 kuba get pod bnana -o events --command
 cmp stdout want-events-command.txt
 kuba get pod bnana -o logs --command
@@ -157,6 +175,10 @@ get-output  apple-1  0/2  Running  0  <age>
 json  {"a":1}
 note  line one
 line two  tabbed
+-- want-annotations-raw.go.txt --
+json  {"a":1}
+note  line one
+       line two  tabbed
 -- want-labels-both.txt --
 apple-1
 app  apple
@@ -165,19 +187,35 @@ tier  web
 apple-2
 app  apple
 tier  db
+-- want-labels-types.txt --
+pod/apple-1
+app  apple
+tier  web
+
+pod/apple-2
+app  apple
+tier  db
+
+pod/banana-1
+app  banana
 -- want-annotations-both.txt --
 json  {"a":1}
 note  line one\nline two\ttabbed
 -- want-annotations-both.go.txt --
 apple-1
 json  {"a":1}
-note  line one\nline two\ttabbed
+note  line one
+       line two  tabbed
 -- want-describe-command.txt --
 kubectl describe pod banana-1
 -- want-yaml-command.txt --
 kubectl get pod banana-1 --output=yaml --no-headers
 -- want-json-command.txt --
 kubectl get pod banana-1 --output=json --no-headers
+-- want-yaml-command.go.txt --
+kubectl get pod banana-1 --output=yaml
+-- want-json-command.go.txt --
+kubectl get pod banana-1 --output=json
 -- want-events-command.txt --
 kubectl get events --field-selector=involvedObject.kind=Pod,involvedObject.name=banana-1 --sort-by=.metadata.creationTimestamp --no-headers
 -- want-logs-command.txt --

@@ -108,6 +108,14 @@ func (h *harness) setup(e *testscript.Env) error {
 		callsEnv:     filepath.Join(e.WorkDir, ".calls"),
 		"LANG":       "en_US.UTF-8",
 		"TZ":         "UTC",
+		// A fixed theme keeps kubecolor's printer from asking ptyexec's terminal for its background color, which
+		// nothing answers, so each colored table would wait out the query's timeout.
+		"KUBECOLOR_PRESET": "dark",
+		// The fzf fake picks per FZF_PICK; scripts about the fzf built into the Go kuba unset this and drive it with tui.
+		"KUBA_FZF": "fzf",
+		// Handoffs run plain kubectl, as Python's do, so printed commands match; scripts about the Go kuba's default,
+		// `kuba kubectl`, unset this.
+		"KUBA_KUBECTL": "kubectl",
 	} {
 		e.Setenv(k, v)
 	}
@@ -203,6 +211,9 @@ type scriptState struct {
 	kubeconfig string
 	contexts   []*kubeContext
 	lastExit   int
+	lastStderr string
+	// tui is the command `tui start` started, until `tui exit`.
+	tui *tuiSession
 }
 
 // kubeContext is a context in the script's kubeconfig, plus the API server behind it.

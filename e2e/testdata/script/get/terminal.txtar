@@ -1,11 +1,12 @@
 # On a terminal, listings print headers, and --no-headers drops them. Off a terminal, as in every other script, headers
-# never print. Tables stay plain either way: color comes only from kubecolor, whose fake never colors. -A and nodes need
-# a server of its own, and banana is a sibling for --multi-cluster.
+# never print. NO_COLOR keeps the goldens plain, and color gets its own checks at the end. -A and nodes need a server of
+# its own, and banana is a sibling for --multi-cluster.
 
 mkcluster apple banana
 kapply pods.yaml
 kapply -c banana banana-pods.yaml
 env KUBA_CLUSTERS='k*=*'
+env NO_COLOR=1
 
 ptyexec kuba get pod bnana
 cmp stdout want.txt
@@ -24,7 +25,23 @@ cmp stdout want-multi-cluster.txt
 ptyexec kuba get pod bnana -o wide
 cmp stdout want-wide.txt
 ptyexec kuba get node
-cmp stdout want-nodes.txt
+[impl:python] cmp stdout want-nodes.txt
+[impl:go] cmp stdout want-nodes.go.txt
+
+# Go colors its own tables on a terminal, kubecolor or not, following kubecolor's settings. Python colors them only
+# through kubecolor, whose fake never colors.
+env NO_COLOR=
+ptyexec kuba get pod bnana
+[impl:python] ! stdout '{/}'
+[impl:go] stdout '{bold}NAME'
+env KUBECOLOR_FORCE_COLORS=none
+ptyexec kuba get pod bnana
+! stdout '{/}'
+env KUBECOLOR_FORCE_COLORS=
+
+# Off a terminal, neither colors. exec keeps the raw output, where kuba would strip ANSI codes.
+exec kuba get pod bnana
+! stdout '\x1b\['
 
 -- want.txt --
 NAME  READY  STATUS  RESTARTS  AGE
@@ -52,6 +69,9 @@ banana-1  0/1  Pending  0  <age>  <none>  <none>  <none>  <none>
 -- want-nodes.txt --
 NAME  STATUS  ROLES  AGE  VERSION  INSTANCE-TYPE
 fig  Ready  <none>  <age>  -  m5.large
+-- want-nodes.go.txt --
+NAME  STATUS  ROLES  AGE  VERSION  INSTANCE-TYPE
+fig  Ready  <none>  <age>  m5.large
 -- pods.yaml --
 apiVersion: v1
 kind: Pod

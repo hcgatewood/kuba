@@ -2,7 +2,11 @@
 
 exec sh -c 'for i in $(seq 501); do printf -- "---\napiVersion: v1\nkind: ConfigMap\nmetadata: {name: apple-%s}\n" $i; done >cms.yaml'
 kapply cms.yaml
+[impl:go] env KUBA_DEBUG=1
 kuba get cm
 stdout -count=501 '^apple-\d+ '
 kuba get cm -o name
 stdout -count=501 '^apple-\d+$'
+
+# Go sends one request per page.
+[impl:go] reqs 2
