@@ -1,0 +1,251 @@
+# Every -o value. Kuba prints names, labels, and annotations itself; the rest end in a command. -o pods lists a node's
+# pods, so the script needs a server of its own.
+
+mkcluster apple
+kapply objects.yaml
+kuba get pod bnana -o name
+rows banana-1
+
+# Python bug: -o=VALUE fails, since click reads the value as =VALUE.
+[impl:python] ! kuba get pod bnana -o=name
+[impl:python] exitcode 2
+[impl:go] kuba get pod bnana -o=name
+[impl:go] rows banana-1
+
+# Go hands kubectl's own formats to kubectl. Python's -o takes only its fixed list, so they're usage errors.
+[impl:python] ! kuba get pod bnana -o jsonpath={.status.phase}
+[impl:python] exitcode 2
+[impl:go] kuba get pod bnana -o jsonpath={.status.phase}
+[impl:go] stdout '^Pending$'
+[impl:python] ! kuba get pod bnana -o custom-columns=NAME:.metadata.name,PHASE:.status.phase
+[impl:python] exitcode 2
+[impl:go] kuba get pod bnana -o custom-columns=NAME:.metadata.name,PHASE:.status.phase
+[impl:go] rows banana-1
+
+kuba get pod bnana -o wide
+cmp stdout want-wide.txt
+kuba get pod apple-1 -o labels
+cmp stdout want-labels.txt
+kuba get pod apple-1 -o annotations
+cmp stdout want-annotations.txt
+kuba get pod apple-1 -o node
+cmp stdout want-node.txt
+kuba get pod apple-1 -o containers
+rows main sidecar
+kuba get node fig -o pods
+cmp stdout want-pods.txt
+kuba get pod bnana -o events
+cmp stdout want-events.txt
+
+# The rest run a tool on the match. stern follows by default, so -o logs turns that off.
+kuba get pod bnana -o describe
+stdout '^Name:  banana-1$'
+kuba get pod bnana -o logs-follow
+calls kubectl-stern
+! stdout ' --no-follow'
+kuba get pod bnana -o logs
+calls kubectl-stern
+stdout ' --no-follow'
+kuba get pod bnana -o children
+calls kubectl-lineage
+stdout '^kubectl-lineage .*banana-1$'
+! stdout dependencies
+kuba get pod bnana -o parents
+calls kubectl-lineage
+stdout '^kubectl-lineage --dependencies .*banana-1$'
+
+# Python bug: stern reads its pod query as an unanchored regex, yet Python hands it a lone pod's bare name, so banana-1
+# would also tail banana-10. Go anchors it, as Python already does for several pods.
+calls kubectl-stern
+[impl:python] stdout '^kubectl-stern banana-1 '
+[impl:go] stdout '\^\(banana-1\)\$'
+
+# Several pods each get a heading.
+kuba get pod aple --no-select -o labels
+cmp stdout want-labels-both.txt
+
+# Python bug: the headings disappear when only one of the pods has any entries.
+kuba get pod aple --no-select -o annotations
+[impl:python] cmp stdout want-annotations-both.txt
+[impl:go] cmp stdout want-annotations-both.go.txt
+stderr apple-2
+
+# KUBA_ESCAPE_ANNOTATIONS=false prints annotation values raw.
+env KUBA_ESCAPE_ANNOTATIONS=false
+kuba get pod apple-1 -o annotations
+cmp stdout want-annotations-raw.txt
+
+# Formats limited to one type are an error on any other. Python exits 1 for that; Go exits 2, as for any usage error.
+! kuba get pod bnana -o pods
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+stderr node
+! kuba get deploy cherry -o containers
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+stderr pod
+
+# Formats limited to one object are an error when several match.
+! kuba get pod aple --no-select -o events
+exitcode 1
+! kuba get pod aple --no-select -o children
+exitcode 1
+! kuba get pod aple --no-select -o parents
+exitcode 1
+
+# Python bug: -o node on anything but a pod reaches kubectl as --output=node, which kubectl rejects.
+! kuba get deploy cherry -o node
+[impl:python] stderr 'unable to match a printer suitable for the output format "node"'
+[impl:go] exitcode 2
+[impl:go] stderr pod
+
+# Python bug: -o fx reaches kubectl as --output=fx, which kubectl rejects.
+[impl:python] ! kuba get pod bnana -o fx
+[impl:python] stderr 'unable to match a printer suitable for the output format "fx"'
+[impl:go] kuba get pod bnana -o fx
+[impl:go] calls fx
+[impl:go] stdout '"name": "banana-1"'
+[impl:go] kuba get pod bnana -o fx --command
+[impl:go] stdout 'json \| kuba ifne fx$'
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba get pod bnana -o describe --command
+cmp stdout want-describe-command.txt
+kuba get pod bnana -o yaml --command
+cmp stdout want-yaml-command.txt
+kuba get pod bnana -o json --command
+cmp stdout want-json-command.txt
+kuba get pod bnana -o events --command
+cmp stdout want-events-command.txt
+kuba get pod bnana -o logs --command
+cmp stdout want-logs-command.txt
+kuba get pod bnana -o logs-follow --command
+cmp stdout want-logs-follow-command.txt
+kuba get pod aple --no-select -o logs --command
+cmp stdout want-logs-both-command.txt
+kuba get pod bnana -o children --command
+cmp stdout want-children-command.txt
+kuba get pod bnana -o parents --command
+cmp stdout want-parents-command.txt
+kuba get node fig -o pods --command
+cmp stdout want-pods-command.txt
+
+# Python bug: the command carries --output twice.
+kuba get pod apple-1 -o node --command
+cmp stdout want-node-command.txt
+
+# Python doesn't quote the jsonpath, so the command breaks when a shell runs it.
+kuba get pod apple-1 -o containers --command
+cmp stdout want-containers-command.txt
+
+-- want-wide.txt --
+banana-1  0/1  Pending  0  <age>  <none>  <none>  <none>  <none>
+-- want-labels.txt --
+app  apple
+tier  web
+-- want-annotations.txt --
+json  {"a":1}
+note  line one\nline two\ttabbed
+-- want-node.txt --
+apple-1  fig-1
+-- want-pods.txt --
+NAMESPACE  NAME  READY  STATUS  RESTARTS  AGE
+get-output  apple-1  0/2  Running  0  <age>
+-- want-events.txt --
+<unknown>  Warning  BackOff  pod/banana-1  Back-off restarting failed container
+-- want-annotations-raw.txt --
+json  {"a":1}
+note  line one
+line two  tabbed
+-- want-labels-both.txt --
+apple-1
+app  apple
+tier  web
+
+apple-2
+app  apple
+tier  db
+-- want-annotations-both.txt --
+json  {"a":1}
+note  line one\nline two\ttabbed
+-- want-annotations-both.go.txt --
+apple-1
+json  {"a":1}
+note  line one\nline two\ttabbed
+-- want-describe-command.txt --
+kubectl describe pod banana-1
+-- want-yaml-command.txt --
+kubectl get pod banana-1 --output=yaml --no-headers
+-- want-json-command.txt --
+kubectl get pod banana-1 --output=json --no-headers
+-- want-events-command.txt --
+kubectl get events --field-selector=involvedObject.kind=Pod,involvedObject.name=banana-1 --sort-by=.metadata.creationTimestamp --no-headers
+-- want-logs-command.txt --
+kubectl stern banana-1 --no-follow --color=always
+-- want-logs-follow-command.txt --
+kubectl stern banana-1 --since=1s --color=always
+-- want-logs-both-command.txt --
+kubectl stern '^(apple-1|apple-2)$' --no-follow --color=always
+-- want-children-command.txt --
+kubectl lineage pod banana-1
+-- want-parents-command.txt --
+kubectl lineage --dependencies pod banana-1
+-- want-pods-command.txt --
+kubectl get pods --field-selector=spec.nodeName=fig-1 --all-namespaces
+-- want-node-command.txt --
+kubectl get pod apple-1 --output=node --no-headers --output=custom-columns=NAME:.metadata.name,NODE:.spec.nodeName
+-- want-containers-command.txt --
+kubectl get pods apple-1 --output=jsonpath={range .spec.containers[*]}{.name}{'\n'}{end} --no-headers
+-- objects.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: fig-1}
+status:
+  addresses: [{type: InternalIP, address: 10.0.0.1}]
+  conditions: [{type: Ready, status: "True"}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  labels: {app: apple, tier: web}
+  annotations:
+    note: "line one\nline two\ttabbed"
+    json: '{"a":1}'
+spec:
+  nodeName: fig-1
+  containers: [{name: main, image: busybox}, {name: sidecar, image: envoy}]
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-2
+  labels: {app: apple, tier: db}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+  labels: {app: banana}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+---
+apiVersion: v1
+kind: Event
+metadata: {name: banana-1.backoff}
+involvedObject: {kind: Pod, name: banana-1}
+reason: BackOff
+message: Back-off restarting failed container
+type: Warning
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cherry}
+spec:
+  selector: {matchLabels: {app: cherry}}
+  template:
+    metadata: {labels: {app: cherry}}
+    spec: {containers: [{name: main, image: busybox}]}

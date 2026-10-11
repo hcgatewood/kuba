@@ -1,0 +1,98 @@
+# Listings show every match without asking. Formats that act on objects ask fzf to pick, unless only one object
+# matches. --select and --no-select override that, and --one asks for a single pick.
+
+kapply pods.yaml
+kuba get pod aple
+rows apple-db apple-web
+kuba get pod aple -o name
+rows apple-db apple-web
+kuba get pod bnana -o labels
+cmp stdout want-banana-web-labels.txt
+kuba get pod aple --no-select -o labels
+cmp stdout want-apple-labels.txt
+! calls fzf
+
+kuba get pod aple -o labels
+cmp stdout want-apple-db-labels.txt
+env FZF_PICK=all
+kuba get pod aple -o labels
+cmp stdout want-apple-labels.txt
+kuba get pod aple --one -o labels
+cmp stdout want-apple-db-labels.txt
+kuba get pod aple --select
+rows apple-db apple-web
+kuba get pod --select -o name
+rows apple-db apple-web banana-web
+calls fzf
+cmp stdout want-fzf.txt
+
+# Only the pick gets printed.
+env FZF_PICK=match:apple-web
+kuba get pod aple --select
+rows apple-web
+
+# Matching ignores case, and fzf opens on the matches too: its smart case would read APLE as case-sensitive and hide
+# them.
+env FZF_PICK=all
+kuba get pod APLE --select -o name
+rows apple-db apple-web
+
+env FZF_PICK=cancel
+! kuba get pod aple -o labels
+stderr 'no pod selected'
+
+-- want-banana-web-labels.txt --
+app  banana
+tier  web
+-- want-apple-labels.txt --
+apple-db
+app  apple
+tier  db
+
+apple-web
+app  apple
+tier  web
+-- want-apple-db-labels.txt --
+app  apple
+tier  db
+-- want-fzf.txt --
+fzf --multi --query=aple '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-db  0/1  Running  0  <age>
+| apple-web  0/1  Running  0  <age>
+fzf --multi --query=aple '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-db  0/1  Running  0  <age>
+| apple-web  0/1  Running  0  <age>
+fzf --bind=shift-tab:up,tab:down --query=aple '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-db  0/1  Running  0  <age>
+| apple-web  0/1  Running  0  <age>
+fzf --multi --query=aple '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-db  0/1  Running  0  <age>
+| apple-web  0/1  Running  0  <age>
+fzf --multi --query= '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-db  0/1  Running  0  <age>
+| apple-web  0/1  Running  0  <age>
+| banana-web  0/1  Pending  0  <age>
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-web
+  labels: {app: apple, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-db
+  labels: {app: apple, tier: db}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-web
+  labels: {app: banana, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

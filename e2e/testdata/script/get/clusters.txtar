@@ -1,0 +1,171 @@
+# --multi-cluster searches the current cluster's sibling group from KUBA_CLUSTERS (here: every context), in the current
+# context's namespace, and adds a CLUSTER column. A query needn't match on every cluster.
+
+mkcluster apple banana cherry
+kapply -c apple apple.yaml
+kapply -c banana banana.yaml
+env KUBA_CLUSTERS='k*=*'
+kuba get pod --multi-cluster
+rows apple/apple-1 apple/banana-1 banana/apple-2
+kuba get pod apple-1 --multi-cluster
+rows apple/apple-1
+
+# Go adds -m, short for --multi-cluster.
+[impl:go] kuba get pod aple -m
+[impl:go] rows apple/apple-1 banana/apple-2
+
+# Python bug: an empty sibling cluster leaks kubectl's "No resources found" onto stderr.
+kuba get pod aple --multi-cluster
+rows apple/apple-1 banana/apple-2
+[impl:python] stderr 'No resources found'
+[impl:go] ! stderr .
+
+# A passthrough flag hands each cluster's listing to kubectl, one after another.
+kuba get pod --multi-cluster --chunk-size=10
+cmp stdout want-chunk-size.txt
+
+# Python hands -L and --show-labels off the same way. Go draws them itself, keeping one table with a CLUSTER column.
+kuba get pod --multi-cluster -L app --show-labels
+[impl:python] cmp stdout want-labels.txt
+[impl:go] cmp stdout want-labels.go.txt
+
+# -A searches every namespace of every sibling, adding a NAMESPACE column after CLUSTER.
+kapply -c banana kiwi.yaml
+kuba get pod aple -A --multi-cluster
+rows apple/$NS/apple-1 banana/$NS/apple-2 banana/kiwi/apple-kiwi
+
+# The picker lists every sibling's matches under a CLUSTER column. Python prints the picks as one document per
+# cluster; Go prints one List.
+env FZF_PICK=all
+kuba get pod aple --multi-cluster -o yaml
+[impl:python] stdout -count=2 '^kind: Pod$'
+[impl:go] stdout -count=1 '^kind: List$'
+[impl:go] stdout -count=2 '^  kind: Pod$'
+calls fzf
+cmp stdout want-fzf.txt
+env FZF_PICK=
+
+# Python's --clusters replaces KUBA_CLUSTERS for one command: it regroups clusters but still starts from the current
+# context, so it can't pick clusters. Go picks clusters by alias or context name, and fans out without --multi-cluster.
+[impl:python] kuba get pod aple --multi-cluster --clusters 'f*=*'
+[impl:python] rows apple/apple-1 banana/apple-2
+[impl:python] ! kuba get pod aple --multi-cluster --clusters 'k*=b*'
+[impl:python] stderr 'no sibling clusters'
+[impl:go] kuba get pod aple --clusters kapple,banana
+[impl:go] rows apple/apple-1 banana/apple-2
+[impl:go] kuba get pod aple --clusters 'kb*'
+[impl:go] rows banana/apple-2
+
+# Python bug: your --context lands after the --context kuba sets for each cluster's command and overrides it, so pods
+# found on the other clusters come back NotFound. Go keeps each cluster's own --context.
+[impl:python] ! kuba get pod aple --multi-cluster --context=banana --chunk-size=10
+[impl:python] stderr NotFound
+[impl:go] kuba get pod aple --multi-cluster --context=banana --chunk-size=10
+[impl:go] rows apple-1 apple-2
+
+# Go fans out over --context's sibling group, not the current context's.
+env KUBA_CLUSTERS='a=apple,b=banana,c=cherry'
+[impl:go] kuba get pod aple --multi-cluster --context=banana
+[impl:go] stdout apple-2
+[impl:go] ! stdout apple-1
+env KUBA_CLUSTERS='k*=*'
+
+# Go refuses --context or --multi-cluster with --clusters, which names its clusters outright, and any flag that picks one
+# cluster entry, server, or credential with a fan-out.
+[impl:go] ! kuba get pod --clusters banana --context=apple
+[impl:go] exitcode 2
+[impl:go] ! kuba get pod --clusters banana --multi-cluster
+[impl:go] exitcode 2
+[impl:go] ! kuba get pod --multi-cluster --server=https://example.com
+[impl:go] exitcode 2
+
+# Python bug: --multi-cluster fails when the current context names no namespace. kubectl reads that as default, and
+# so does Go.
+kapply -c banana default-pod.yaml
+exec kubectl config set-context apple --namespace=
+[impl:python] ! kuba get pod aple --multi-cluster
+[impl:python] stderr 'no namespace found'
+[impl:go] kuba get pod aple --multi-cluster
+[impl:go] rows banana/apple-3
+exec kubectl config set-context apple --namespace=$NS
+
+# A sibling kuba can't reach fails Python's whole search. Go warns, naming it, and lists the rest; --strict-clusters
+# makes it fail instead.
+exec kubectl config set-cluster donut --server=https://127.0.0.1:1
+exec kubectl config set-context donut --cluster=donut --user=apple --namespace=$NS
+[impl:python] ! kuba get pod aple --multi-cluster
+[impl:python] exitcode 1
+[impl:python] stderr '127.0.0.1:1 was refused'
+[impl:go] kuba get pod aple --multi-cluster
+[impl:go] rows apple/apple-1 banana/apple-2
+[impl:go] stderr donut
+[impl:go] ! kuba get pod aple --multi-cluster --strict-clusters
+[impl:go] exitcode 1
+[impl:go] ! stdout .
+[impl:go] stderr donut
+exec kubectl config delete-context donut
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba get pod apple-2 --multi-cluster -o yaml --command
+cmp stdout want-apple-2-command.txt
+
+-- want-chunk-size.txt --
+apple-1  0/1  Running  0  <age>
+banana-1  0/1  Pending  0  <age>
+
+apple-2  0/1  Running  0  <age>
+-- want-labels.txt --
+apple-1  0/1  Running  0  <age>  apple  app=apple
+banana-1  0/1  Pending  0  <age>  banana  app=banana
+
+apple-2  0/1  Running  0  <age>  apple  app=apple
+-- want-labels.go.txt --
+apple  apple-1  0/1  Running  0  <age>  apple  app=apple
+apple  banana-1  0/1  Pending  0  <age>  banana  app=banana
+banana  apple-2  0/1  Running  0  <age>  apple  app=apple
+-- want-fzf.txt --
+fzf --multi --query=aple '--prompt=Choose pod: ' '--header=CLUSTER  NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple  apple-1  0/1  Running  0  <age>
+| banana  apple-2  0/1  Running  0  <age>
+-- want-apple-2-command.txt --
+kubectl get pod apple-2 --namespace=get-clusters --context=banana --output=yaml --no-headers
+-- apple.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  labels: {app: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+  labels: {app: banana}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+-- banana.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-2
+  labels: {app: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+-- kiwi.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-kiwi, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+-- default-pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-3, namespace: default}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

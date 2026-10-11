@@ -1,0 +1,71 @@
+# --command prints the final command instead of running it, and refuses when there would be more than one.
+# --must-single-command runs it, but fails with the given reason when there would be more than one.
+
+mkcluster apple
+kapply objects.yaml
+
+# Output kuba prints itself has no command, so --command prints the output.
+kuba get pod bnana --command
+rows banana-1
+
+! kuba get pod -A aple --chunk-size=10 --command
+exitcode 1
+! stdout .
+! kuba get pod -A aple --chunk-size=10 --must-single-command='would list several namespaces'
+exitcode 1
+! stdout .
+stderr 'would list several namespaces'
+kuba get pod -n kiwi aple --chunk-size=10 --must-single-command=nope
+cmp stdout want-kiwi.txt
+kuba get pod -A --must-single-command=nope
+rows get-command/banana-1 kiwi/apple-1 kiwi/apple-2 lemon/apple-3
+
+# Go drops the flags kuba adds only because stdout isn't a terminal, since a printed command runs later, in one.
+kuba get pod bnana -o yaml --command
+[impl:python] cmp stdout want-yaml-command.txt
+[impl:go] stdout banana-1
+[impl:go] ! stdout no-headers
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba get pod -n kiwi aple --chunk-size=10 --must-single-command=nope --command
+cmp stdout want-kiwi-command.txt
+
+-- want-kiwi.txt --
+apple-1  0/1  Running  0  <age>
+apple-2  0/1  Running  0  <age>
+-- want-yaml-command.txt --
+kubectl get pod banana-1 --output=yaml --no-headers
+-- want-kiwi-command.txt --
+kubectl get pod apple-1 apple-2 --namespace=kiwi --no-headers --chunk-size=10
+-- objects.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-3, namespace: lemon}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

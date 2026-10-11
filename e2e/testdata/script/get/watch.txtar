@@ -1,0 +1,57 @@
+# -w passes through to kubectl, whose watch never ends, so these bound it with kubectl's --request-timeout. Needs a
+# server of its own for -A.
+
+mkcluster apple
+kapply objects.yaml
+kuba get pod bnana -w --request-timeout=1s
+rows banana-1
+kuba get pod bnana -o json -w --request-timeout=1s
+stdout '"name": "banana-1"'
+kuba get pod -w --request-timeout=1s
+rows apple-2 banana-1
+
+# A watch that would take more than one command is an error. Python runs one watch per namespace, one after another,
+# so without a timeout it never gets past the first.
+[impl:python] kuba get pod -A aple -w --request-timeout=1s
+[impl:python] rows apple-2 apple-1
+[impl:go] ! kuba get pod -A aple -w --request-timeout=1s
+[impl:go] exitcode 1
+[impl:go] ! stdout .
+[impl:go] stderr watch
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba get pod bnana -w --command
+cmp stdout want-command.txt
+kuba get pod bnana -o json -w --command
+cmp stdout want-json-command.txt
+kuba get pod -w --command
+cmp stdout want-listing-command.txt
+
+-- want-command.txt --
+kubectl get pod banana-1 --no-headers -w
+-- want-json-command.txt --
+kubectl get pod banana-1 --output=json --no-headers -w
+-- want-listing-command.txt --
+kubectl get pod --no-headers -w
+-- objects.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

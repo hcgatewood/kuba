@@ -1,0 +1,130 @@
+# Flags that decide which objects you mean (--context, -l, --field-selector) shape kuba's lookup. They reach the final
+# command only in a listing handoff, where kubectl does the lookup instead.
+
+mkcluster banana
+kapply -c apple pods.yaml
+kapply -c banana banana-pods.yaml
+
+# Native listings honor them.
+kuba get pod --field-selector=status.phase=Pending
+rows apple-db-pending banana-web-pending
+kuba get pod -l tier=web --field-selector=status.phase=Pending
+rows banana-web-pending
+kuba get pod --context=banana
+rows cherry-web-running
+
+# With no query, a flag kuba doesn't render (--sort-by) hands the listing to kubectl, -l and --context included.
+kuba get pod -l tier=web --sort-by=.metadata.name
+rows apple-web-running banana-web-pending
+kuba get pod --sort-by=.metadata.name --context=banana
+rows cherry-web-running
+
+# Python bug: -l, the inline label form, and --field-selector reach kubectl alongside the resolved names, which kubectl
+# rejects. The picker also ignores --field-selector.
+[impl:python] ! kuba get pod aple --field-selector=status.phase=Pending
+[impl:python] stderr 'name cannot be provided when a selector is specified'
+[impl:go] kuba get pod aple --field-selector=status.phase=Pending
+[impl:go] rows apple-db-pending
+[impl:python] ! kuba get pod aple -l tier=db -o yaml
+[impl:python] stderr 'name cannot be provided when a selector is specified'
+[impl:go] kuba get pod aple -l tier=db -o yaml
+[impl:go] stdout '^  name: apple-db-pending$'
+[impl:python] ! kuba get pod tier=db -o yaml
+[impl:python] stderr 'name cannot be provided when a selector is specified'
+[impl:go] kuba get pod tier=db -o yaml
+[impl:go] stdout '^  name: apple-db-pending$'
+[impl:python] ! kuba get pod --field-selector=status.phase=Pending -o yaml
+[impl:python] stderr 'name cannot be provided when a selector is specified'
+[impl:go] kuba get pod --field-selector=status.phase=Pending -o yaml
+[impl:go] stdout '^  name: apple-db-pending$'
+calls fzf
+[impl:python] cmp stdout want-fzf.txt
+[impl:go] cmp stdout want-fzf.go.txt
+
+# Go looks where --context points. Python looks in the current context, then runs the command against --context.
+[impl:python] ! kuba get pod chery -o yaml --context=banana
+[impl:python] stderr chery
+[impl:go] kuba get pod chery -o yaml --context=banana
+[impl:go] stdout '^  name: cherry-web-running$'
+[impl:python] ! kuba get pod bnana -o yaml --context=banana
+[impl:python] stderr 'pods "banana-web-pending" not found'
+[impl:go] ! kuba get pod bnana -o yaml --context=banana
+[impl:go] exitcode 1
+[impl:go] stderr bnana
+
+# A --context naming no context is an error.
+! kuba get pod aple --context=nope
+exitcode 1
+stderr nope
+
+# Connection flags reach every request, lookups included. Python's lookups ignore them, so they search the default
+# kubeconfig, as you, and only the final command gets the flags.
+exec kubectl config view --raw
+cp stdout banana.kubeconfig
+exec kubectl --kubeconfig=banana.kubeconfig config use-context banana
+[impl:python] ! kuba get pod chery --kubeconfig=banana.kubeconfig
+[impl:python] exitcode 1
+[impl:python] stderr chery
+[impl:go] kuba get pod chery --kubeconfig=banana.kubeconfig
+[impl:go] rows cherry-web-running
+[impl:python] kuba get pod aple --as=nobody --command
+[impl:python] stdout ' --as=nobody'
+[impl:go] ! kuba get pod aple --as=nobody --command
+[impl:go] exitcode 1
+[impl:go] stderr Forbidden
+
+# A set-based selector reaches kubectl intact. Python bug: its printed command leaves the selector unquoted, so a shell
+# reads the parentheses as syntax.
+kuba get pod -l 'tier notin (web)' --sort-by=.metadata.name
+rows apple-db-pending
+kuba get pod -l 'tier notin (web)' --sort-by=.metadata.name --command
+[impl:python] stdout ' --selector=tier notin \(web\)'
+[impl:go] stdout '''--selector=tier notin \(web\)'''
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba get pod -l tier=web --no-select -o yaml --command
+cmp stdout want-handoff-command.txt
+
+-- want-fzf.txt --
+fzf --multi --query= '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-db-pending  0/1  Pending  0  <age>
+| apple-web-running  0/1  Running  0  <age>
+| banana-web-pending  0/1  Pending  0  <age>
+-- want-fzf.go.txt --
+fzf --multi --query= '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-db-pending  0/1  Pending  0  <age>
+| banana-web-pending  0/1  Pending  0  <age>
+-- want-handoff-command.txt --
+kubectl get pod --output=yaml --no-headers --selector=tier=web
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-web-running
+  labels: {app: apple, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-db-pending
+  labels: {app: apple, tier: db}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-web-pending
+  labels: {app: banana, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+-- banana-pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cherry-web-running
+  labels: {app: cherry, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

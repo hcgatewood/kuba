@@ -1,0 +1,63 @@
+# A query picks its tier once, across every cluster and namespace it searches, so an exact name in one place hides
+# partial matches everywhere else. The missing row is the signal.
+
+mkcluster apple banana cherry
+kapply -c apple namespaces.yaml donut.yaml
+kapply -c banana donut.yaml
+kapply -c cherry donut-canary.yaml
+env KUBA_CLUSTERS='k*=*'
+kuba get deploy -A donut
+rows get-match-across/donut kiwi/donut
+
+# Python matches each cluster separately, so cherry falls back to donut-canary.
+kuba get deploy donut --multi-cluster
+[impl:python] rows apple/donut banana/donut cherry/donut-canary
+[impl:go] rows apple/donut banana/donut
+kuba get deploy -A donut --multi-cluster
+[impl:python] rows apple/get-match-across/donut apple/kiwi/donut banana/get-match-across/donut cherry/get-match-across/donut-canary
+[impl:go] rows apple/get-match-across/donut apple/kiwi/donut banana/get-match-across/donut
+
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: donut, namespace: kiwi}
+spec:
+  selector: {matchLabels: {app: donut}}
+  template:
+    metadata: {labels: {app: donut}}
+    spec: {containers: [{name: main, image: busybox}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: donut-canary, namespace: lemon}
+spec:
+  selector: {matchLabels: {app: donut}}
+  template:
+    metadata: {labels: {app: donut}}
+    spec: {containers: [{name: main, image: busybox}]}
+-- donut.yaml --
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: donut}
+spec:
+  selector: {matchLabels: {app: donut}}
+  template:
+    metadata: {labels: {app: donut}}
+    spec: {containers: [{name: main, image: busybox}]}
+-- donut-canary.yaml --
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: donut-canary}
+spec:
+  selector: {matchLabels: {app: donut}}
+  template:
+    metadata: {labels: {app: donut}}
+    spec: {containers: [{name: main, image: busybox}]}

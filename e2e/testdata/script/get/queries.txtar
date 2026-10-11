@@ -1,0 +1,56 @@
+# No query lists everything. One query matches a name exactly, or else by its letters in order. Several queries each
+# add their matches, and a name matched twice shows once.
+
+kapply pods.yaml
+kuba get pod
+rows apple apple-1 apple-2 banana-1
+kuba get pod apple
+rows apple
+kuba get pod aple
+rows apple apple-1 apple-2
+kuba get pod ap1 bnana
+rows apple-1 banana-1
+kuba get pod ap1 ap1
+rows apple-1
+
+# Go picks each query's match separately, so an exact name wins among several queries too. Python matches several
+# queries by letters in order only.
+kuba get pod apple bnana
+[impl:python] rows apple apple-1 apple-2 banana-1
+[impl:go] rows apple banana-1
+
+# With a picker format, Python opens fzf for several queries whenever more than one pod matches, even when each query
+# names one pod exactly. Go takes those pods without asking.
+env FZF_PICK=all
+kuba get pod apple-1 banana-1 -o yaml
+stdout 'name: apple-1$'
+stdout 'name: banana-1$'
+[impl:python] calls fzf
+[impl:python] stdout '^fzf '
+[impl:go] ! calls fzf
+env FZF_PICK=
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

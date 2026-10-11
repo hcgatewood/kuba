@@ -1,0 +1,54 @@
+# -n picks the namespace, before or after the query, and -A searches all of them. Needs a server of its own for -A.
+
+mkcluster apple
+kapply objects.yaml
+kuba get pod -n kiwi
+rows apple-kiwi
+kuba get pod -n kiwi aple
+rows apple-kiwi
+kuba get pod --namespace=kiwi aple
+rows apple-kiwi
+kuba get pod aple -n kiwi
+rows apple-kiwi
+kuba get pod -A
+rows get-namespaces/banana-1 kiwi/apple-kiwi lemon/apple-lemon
+kuba get pod -A -o name
+rows banana-1 apple-kiwi apple-lemon
+kuba get ns
+rows default get-namespaces kiwi kube-node-lease kube-public kube-system lemon
+
+# The final command names the namespace the pod was found in.
+kuba get pod -A kiwi -o yaml
+stdout '^  namespace: kiwi$'
+[impl:go] skip 'TODO(go): printed command form'
+kuba get pod -A kiwi -o yaml --command
+cmp stdout want-kiwi-command.txt
+
+-- want-kiwi-command.txt --
+kubectl get pod apple-kiwi --namespace=kiwi --output=yaml --no-headers
+-- objects.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-kiwi, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-lemon, namespace: lemon}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

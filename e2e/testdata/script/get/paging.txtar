@@ -1,0 +1,8 @@
+# Listings come back in pages of 500, so a namespace with more objects than that still lists them all.
+
+exec sh -c 'for i in $(seq 501); do printf -- "---\napiVersion: v1\nkind: ConfigMap\nmetadata: {name: apple-%s}\n" $i; done >cms.yaml'
+kapply cms.yaml
+kuba get cm
+stdout -count=501 '^apple-\d+ '
+kuba get cm -o name
+stdout -count=501 '^apple-\d+$'

@@ -1,0 +1,58 @@
+# A query that matches nothing is an error naming the query.
+
+kapply pods.yaml
+! kuba get pod cherry
+exitcode 1
+stderr cherry
+! kuba get pod cherry donut
+exitcode 1
+stderr cherry
+stderr donut
+
+# Go also says where it looked, and suggests the closest names, which catches typos no in-order match can.
+! kuba get pod appel
+exitcode 1
+stderr appel
+[impl:go] stderr $NS
+[impl:go] stderr apple-1
+
+# Python drops an unmatched query as long as another one matches. Go reports it and exits 1, but still shows what the
+# other queries matched, as kubectl does with names it can't find.
+[impl:python] kuba get pod cherry bnana
+[impl:go] ! kuba get pod cherry bnana
+[impl:go] exitcode 1
+[impl:go] stderr cherry
+rows banana-1
+[impl:python] kuba get pod cherry bnana -o yaml
+[impl:go] ! kuba get pod cherry bnana -o yaml
+[impl:go] exitcode 1
+[impl:go] stderr cherry
+stdout 'name: banana-1$'
+
+# Python bug: a listing that finds nothing is an error. kubectl says "No resources found" and exits 0.
+[impl:python] ! kuba get deploy
+[impl:python] exitcode 1
+[impl:go] kuba get deploy
+[impl:go] ! stdout .
+[impl:go] stderr 'No resources found'
+
+# The same goes for a picker with nothing to pick.
+[impl:python] ! kuba get deploy -o yaml
+[impl:python] exitcode 1
+[impl:go] kuba get deploy -o yaml
+[impl:go] ! stdout .
+[impl:go] stderr 'No resources found'
+! calls fzf
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

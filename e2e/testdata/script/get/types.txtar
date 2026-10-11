@@ -1,0 +1,69 @@
+# The type can be singular, plural, a short name, or group-qualified, in any case. Queries ignore case, and may carry
+# the type as a prefix.
+
+kapply objects.yaml
+kuba get pod bnana
+rows banana-1
+kuba get pods bnana
+rows banana-1
+kuba get po bnana
+rows banana-1
+kuba get Pod bnana
+rows banana-1
+kuba get pod BNANA
+rows banana-1
+kuba get pod pod/bnana
+rows banana-1
+kuba get deploy cherry
+rows cherry
+kuba get deployments.apps cherry
+rows cherry
+
+# Python bug: the prefix is stripped only when it's spelled exactly like TYPE.
+[impl:python] ! kuba get Pod pod/bnana
+[impl:python] ! kuba get pod pods/bnana
+[impl:go] kuba get Pod pod/bnana
+[impl:go] rows banana-1
+[impl:go] kuba get pod pods/bnana
+[impl:go] rows banana-1
+
+# Several types, or all, list each match with its type. Python bug: they crash without a query.
+kuba get pod,deploy e
+[impl:python] stdout -count=2 '^.+$'
+stdout '^pod/apple-1 '
+stdout '^deployment.apps/cherry '
+kuba get all e -o name
+rows pod/apple-1 deployment.apps/cherry
+[impl:python] ! kuba get pod,deploy
+[impl:python] exitcode 1
+[impl:python] stderr ValueError
+[impl:go] kuba get pod,deploy
+[impl:go] stdout '^pod/banana-1 '
+[impl:go] stdout '^deployment.apps/cherry '
+[impl:python] ! kuba get all
+[impl:python] exitcode 1
+[impl:python] stderr ValueError
+[impl:go] kuba get all -o name
+[impl:go] rows pod/apple-1 pod/banana-1 deployment.apps/cherry
+
+-- objects.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cherry}
+spec:
+  selector: {matchLabels: {app: cherry}}
+  template:
+    metadata: {labels: {app: cherry}}
+    spec: {containers: [{name: main, image: busybox}]}

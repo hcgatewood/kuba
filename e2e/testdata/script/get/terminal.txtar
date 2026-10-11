@@ -1,0 +1,94 @@
+# On a terminal, listings print headers, and --no-headers drops them. Off a terminal, as in every other script, headers
+# never print. Tables stay plain either way: color comes only from kubecolor, which the harness lacks. -A and nodes need
+# a server of its own, and banana is a sibling for --multi-cluster.
+
+mkcluster apple banana
+kapply pods.yaml
+kapply -c banana banana-pods.yaml
+env KUBA_CLUSTERS='k*=*'
+
+ptyexec kuba get pod bnana
+cmp stdout want.txt
+ptyexec kuba get pod bnana --no-headers
+cmp stdout want-no-headers.txt
+ptyexec kuba get pod -L app
+cmp stdout want-label-columns.txt
+ptyexec kuba get pod bnana --show-labels --show-kind
+cmp stdout want-labels-kind.txt
+
+# Columns kuba adds get headers too: NAMESPACE with -A, CLUSTER across clusters, and the extra wide and node columns.
+ptyexec kuba get pod aple -A
+cmp stdout want-all-namespaces.txt
+ptyexec kuba get pod aple --multi-cluster
+cmp stdout want-multi-cluster.txt
+ptyexec kuba get pod bnana -o wide
+cmp stdout want-wide.txt
+ptyexec kuba get node
+cmp stdout want-nodes.txt
+
+-- want.txt --
+NAME  READY  STATUS  RESTARTS  AGE
+banana-1  0/1  Pending  0  <age>
+-- want-no-headers.txt --
+banana-1  0/1  Pending  0  <age>
+-- want-label-columns.txt --
+NAME  READY  STATUS  RESTARTS  AGE  APP
+apple-1  0/1  Running  0  <age>  apple
+banana-1  0/1  Pending  0  <age>  banana
+-- want-labels-kind.txt --
+NAME  READY  STATUS  RESTARTS  AGE  LABELS
+pod/banana-1  0/1  Pending  0  <age>  app=banana
+-- want-all-namespaces.txt --
+NAMESPACE  NAME  READY  STATUS  RESTARTS  AGE
+get-terminal  apple-1  0/1  Running  0  <age>
+kiwi  apple-kiwi  0/1  Running  0  <age>
+-- want-multi-cluster.txt --
+CLUSTER  NAME  READY  STATUS  RESTARTS  AGE
+apple  apple-1  0/1  Running  0  <age>
+banana  apple-2  0/1  Running  0  <age>
+-- want-wide.txt --
+NAME  READY  STATUS  RESTARTS  AGE  IP  NODE  NOMINATED NODE  READINESS GATES
+banana-1  0/1  Pending  0  <age>  <none>  <none>  <none>  <none>
+-- want-nodes.txt --
+NAME  STATUS  ROLES  AGE  VERSION  INSTANCE-TYPE
+fig  Ready  <none>  <age>  -  m5.large
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  labels: {app: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+  labels: {app: banana}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-kiwi, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig
+  labels: {node.kubernetes.io/instance-type: m5.large}
+status:
+  conditions: [{type: Ready, status: "True"}]
+-- banana-pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

@@ -1,0 +1,98 @@
+# kubectl flags kuba doesn't use pass through, and --sort-by or any passthrough flag hands the listing to kubectl.
+# Python hands off -L, --show-labels, and --show-kind too. Go draws them with kubectl's own printer, so they read the same.
+
+kapply pods.yaml
+kuba get pod -L app
+cmp stdout want-label-columns.txt
+kuba get pod aple -L app
+cmp stdout want-label-columns-apple.txt
+kuba get pod --sort-by=.metadata.name
+rows apple-1 apple-2 banana-1
+kuba get pod --show-labels
+cmp stdout want-show-labels.txt
+kuba get pod aple --show-labels
+cmp stdout want-show-labels-apple.txt
+kuba get pod aple --show-kind
+cmp stdout want-show-kind-apple.txt
+kuba get pod bnana --chunk-size 10
+rows banana-1
+kuba get pod bnana --chunk-size=10
+rows banana-1
+
+# kubectl can't --sort-by objects it's given by name, so a query matching several pods is an error naming the flag.
+! kuba get pod aple --sort-by=.metadata.name
+exitcode 1
+stderr sort-by
+
+# Python passes everything after the first kubectl flag to kubectl as is, so a query there reaches kubectl as a name.
+# Go knows every kubectl get flag, so they can go anywhere.
+[impl:python] ! kuba get pod --chunk-size 10 bnana
+[impl:python] stderr 'pods "bnana" not found'
+[impl:go] kuba get pod --chunk-size 10 bnana
+[impl:go] rows banana-1
+[impl:python] ! kuba get pod --show-labels aple
+[impl:python] stderr 'pods "aple" not found'
+[impl:go] kuba get pod --show-labels aple
+[impl:go] cmp stdout want-show-labels-apple.txt
+
+# Python passes a flag kubectl doesn't know on to kubectl, which rejects it. Go rejects it itself, as a usage error.
+! kuba get pod bnana --newflag value
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+stderr 'unknown flag: --newflag'
+
+# Go prints -L's listing itself, so --command prints it, as for any output kuba prints.
+[impl:go] kuba get pod aple -L app --command
+[impl:go] cmp stdout want-label-columns-apple.txt
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba get pod aple -L app --command
+cmp stdout want-label-columns-command.txt
+kuba get pod bnana --newflag=value --command
+cmp stdout want-newflag-command.txt
+
+-- want-label-columns.txt --
+apple-1  0/1  Running  0  <age>  apple
+apple-2  0/1  Running  0  <age>  apple
+banana-1  0/1  Pending  0  <age>  banana
+-- want-label-columns-apple.txt --
+apple-1  0/1  Running  0  <age>  apple
+apple-2  0/1  Running  0  <age>  apple
+-- want-show-labels.txt --
+apple-1  0/1  Running  0  <age>  app=apple
+apple-2  0/1  Running  0  <age>  app=apple
+banana-1  0/1  Pending  0  <age>  app=banana
+-- want-show-labels-apple.txt --
+apple-1  0/1  Running  0  <age>  app=apple
+apple-2  0/1  Running  0  <age>  app=apple
+-- want-show-kind-apple.txt --
+pod/apple-1  0/1  Running  0  <age>
+pod/apple-2  0/1  Running  0  <age>
+-- want-label-columns-command.txt --
+kubectl get pod apple-1 apple-2 --no-headers --label-columns=app
+-- want-newflag-command.txt --
+kubectl get pod banana-1 --no-headers --newflag=value
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  labels: {app: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-2
+  labels: {app: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+  labels: {app: banana}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

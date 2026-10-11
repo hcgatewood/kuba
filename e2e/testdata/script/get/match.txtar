@@ -1,0 +1,50 @@
+# Queries match in tiers: an exact name, else names containing the query, else names with its letters in order. The
+# first tier with any hits wins. --match (or KUBA_MATCH) picks a single mode instead.
+
+kapply pods.yaml
+kuba get pod frontend-api-2
+rows frontend-api-2
+kuba get pod apin
+rows apple-pie-indexer
+
+# Python matches letters in order only, so apple-pie-indexer matches api too.
+kuba get pod api
+[impl:python] rows api-server apple-pie-indexer frontend-api-2
+[impl:go] rows api-server frontend-api-2
+
+# Python has no --match.
+[impl:python] stop
+kuba get pod api --match fuzzy
+rows api-server apple-pie-indexer frontend-api-2
+kuba get pod api --match substring
+rows api-server frontend-api-2
+! kuba get pod apin --match substring
+exitcode 1
+kuba get pod frontend-api-2 --match exact
+rows frontend-api-2
+! kuba get pod api --match exact
+exitcode 1
+env KUBA_MATCH=fuzzy
+kuba get pod api
+rows api-server apple-pie-indexer frontend-api-2
+kuba get pod api --match tiered
+rows api-server frontend-api-2
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: api-server}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-pie-indexer}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: frontend-api-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}

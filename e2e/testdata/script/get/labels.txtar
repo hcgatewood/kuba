@@ -1,0 +1,50 @@
+# A lone query containing = or ! is a label selector, as is -l, which also narrows queries.
+
+kapply pods.yaml
+kuba get pod app=apple
+rows apple-db apple-web
+kuba get pod 'tier!=web'
+rows apple-db
+kuba get pod -l tier=web
+rows apple-web banana-web
+kuba get pod --selector=tier=web
+rows apple-web banana-web
+kuba get pod -l tier=web aple
+rows apple-web
+
+# With several queries, = is just part of a name. Python drops one that matches nothing; Go errors.
+[impl:python] kuba get pod app=apple bnana
+[impl:python] rows banana-web
+[impl:go] ! kuba get pod app=apple bnana
+[impl:go] exitcode 1
+[impl:go] stderr 'app=apple'
+
+# Two selectors at once is an error. Python exits 1 for it; Go exits 2, as for any usage error.
+! kuba get pod -l tier=web app=apple
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-web
+  labels: {app: apple, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-db
+  labels: {app: apple, tier: db}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-web
+  labels: {app: banana, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

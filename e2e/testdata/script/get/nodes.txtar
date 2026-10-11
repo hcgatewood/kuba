@@ -1,0 +1,55 @@
+# Node listings add an instance-type column, plus hostname with -o wide, and show the newest node first. Nodes are
+# cluster-scoped, so the script needs a server of its own, and it staggers them so creation times differ.
+
+mkcluster apple
+kapply --stagger fig-2.yaml fig-1.yaml fig-3.yaml
+kuba get node
+cmp stdout want.txt
+kuba get node fig
+rows fig-3 fig-1 fig-2
+kuba get node -o wide
+cmp stdout want-wide.txt
+
+# Python bug: the listing defaults leak into commands that aren't listings.
+kuba get node fig-1 -o yaml --command
+[impl:python] cmp stdout want-yaml-command.txt
+[impl:go] ! stdout label-columns
+[impl:go] ! stdout sort-by
+
+-- want.txt --
+fig-3  NotReady  <none>  <age>  -  m5.large
+fig-1  Ready  <none>  <age>  -  c5.xlarge
+fig-2  Ready  <none>  <age>  -  m5.large
+-- want-wide.txt --
+fig-3  NotReady  <none>  <age>  -  10.0.0.3  <none>  <unknown>  <unknown>  <unknown>  m5.large  fig-3.example.com
+fig-1  Ready  <none>  <age>  -  10.0.0.1  <none>  <unknown>  <unknown>  <unknown>  c5.xlarge  fig-1.example.com
+fig-2  Ready  <none>  <age>  -  10.0.0.2  <none>  <unknown>  <unknown>  <unknown>  m5.large  fig-2.example.com
+-- want-yaml-command.txt --
+kubectl get node fig-1 --output=yaml --no-headers --sort-by=.metadata.creationTimestamp --label-columns=node.kubernetes.io/instance-type
+-- fig-1.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-1
+  labels: {node.kubernetes.io/instance-type: c5.xlarge, kubernetes.io/hostname: fig-1.example.com}
+status:
+  addresses: [{type: InternalIP, address: 10.0.0.1}]
+  conditions: [{type: Ready, status: "True"}]
+-- fig-2.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-2
+  labels: {node.kubernetes.io/instance-type: m5.large, kubernetes.io/hostname: fig-2.example.com}
+status:
+  addresses: [{type: InternalIP, address: 10.0.0.2}]
+  conditions: [{type: Ready, status: "True"}]
+-- fig-3.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-3
+  labels: {node.kubernetes.io/instance-type: m5.large, kubernetes.io/hostname: fig-3.example.com}
+status:
+  addresses: [{type: InternalIP, address: 10.0.0.3}]
+  conditions: [{type: Ready, status: "False"}]

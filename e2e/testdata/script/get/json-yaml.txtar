@@ -1,0 +1,217 @@
+# -o json and -o yaml print one object bare, and none or several in one namespace as a List, as kubectl does.
+# ConfigMaps keep the documents short. Needs a server of its own for -A.
+
+mkcluster apple
+kapply objects.yaml
+! kuba get cm cherry -o yaml
+exitcode 1
+stderr cherry
+kuba get cm -n kiwi apple-1 -o yaml
+cmp stdout want-one.yaml
+kuba get cm -n kiwi aple --no-select -o json
+cmp stdout want-two.json
+kuba get cm -n mango --no-select -o yaml
+cmp stdout want-none.yaml
+
+# Python prints one document per namespace, mixing bare objects and Lists, which jq and fx can't read. Go prints one
+# List, however many namespaces the selection spans.
+kuba get cm -A apple --no-select -o yaml
+[impl:python] cmp stdout want-spanning.yaml
+[impl:go] cmp stdout want-spanning.go.yaml
+
+# Go prints that List itself, so it refuses a passthrough flag that no single kubectl command could honor.
+[impl:go] ! kuba get cm -A apple --no-select -o yaml --subresource=status
+[impl:go] exitcode 1
+[impl:go] stderr subresource
+
+# But it honors --show-managed-fields itself, keeping what it otherwise drops, as kubectl does.
+[impl:go] kuba get cm -A apple --no-select -o yaml --show-managed-fields
+[impl:go] stdout managedFields:
+
+# -o kyaml spans them as one List too.
+[impl:go] kuba get cm -A apple --no-select -o kyaml
+[impl:go] stdout -count=1 '^---$'
+[impl:go] stdout -count=1 '^  kind: "List",$'
+[impl:go] stdout -count=4 '^    kind: "ConfigMap",$'
+
+-- want-one.yaml --
+apiVersion: v1
+data:
+  fruit: apple
+kind: ConfigMap
+metadata:
+  creationTimestamp: "<time>"
+  name: apple-1
+  namespace: kiwi
+  resourceVersion: "<rv>"
+  uid: <uid>
+-- want-two.json --
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "data": {
+                "fruit": "apple"
+            },
+            "kind": "ConfigMap",
+            "metadata": {
+                "creationTimestamp": "<time>",
+                "name": "apple-1",
+                "namespace": "kiwi",
+                "resourceVersion": "<rv>",
+                "uid": "<uid>"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "data": {
+                "fruit": "apple"
+            },
+            "kind": "ConfigMap",
+            "metadata": {
+                "creationTimestamp": "<time>",
+                "name": "apple-2",
+                "namespace": "kiwi",
+                "resourceVersion": "<rv>",
+                "uid": "<uid>"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
+-- want-none.yaml --
+apiVersion: v1
+items: []
+kind: List
+metadata:
+  resourceVersion: ""
+-- want-spanning.yaml --
+apiVersion: v1
+data:
+  fruit: apple
+kind: ConfigMap
+metadata:
+  creationTimestamp: "<time>"
+  name: apple-4
+  namespace: get-json-yaml
+  resourceVersion: "<rv>"
+  uid: <uid>
+
+apiVersion: v1
+items:
+- apiVersion: v1
+  data:
+    fruit: apple
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: "<time>"
+    name: apple-1
+    namespace: kiwi
+    resourceVersion: "<rv>"
+    uid: <uid>
+- apiVersion: v1
+  data:
+    fruit: apple
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: "<time>"
+    name: apple-2
+    namespace: kiwi
+    resourceVersion: "<rv>"
+    uid: <uid>
+kind: List
+metadata:
+  resourceVersion: ""
+
+apiVersion: v1
+data:
+  fruit: apple
+kind: ConfigMap
+metadata:
+  creationTimestamp: "<time>"
+  name: apple-3
+  namespace: lemon
+  resourceVersion: "<rv>"
+  uid: <uid>
+-- want-spanning.go.yaml --
+apiVersion: v1
+items:
+- apiVersion: v1
+  data:
+    fruit: apple
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: "<time>"
+    name: apple-4
+    namespace: get-json-yaml
+    resourceVersion: "<rv>"
+    uid: <uid>
+- apiVersion: v1
+  data:
+    fruit: apple
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: "<time>"
+    name: apple-1
+    namespace: kiwi
+    resourceVersion: "<rv>"
+    uid: <uid>
+- apiVersion: v1
+  data:
+    fruit: apple
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: "<time>"
+    name: apple-2
+    namespace: kiwi
+    resourceVersion: "<rv>"
+    uid: <uid>
+- apiVersion: v1
+  data:
+    fruit: apple
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: "<time>"
+    name: apple-3
+    namespace: lemon
+    resourceVersion: "<rv>"
+    uid: <uid>
+kind: List
+metadata:
+  resourceVersion: ""
+-- objects.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: mango}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: apple-1, namespace: kiwi}
+data: {fruit: apple}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: apple-2, namespace: kiwi}
+data: {fruit: apple}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: apple-3, namespace: lemon}
+data: {fruit: apple}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: apple-4}
+data: {fruit: apple}

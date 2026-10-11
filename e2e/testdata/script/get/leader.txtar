@@ -1,0 +1,52 @@
+# --leader keeps only the pods holding a lease, matching each lease's holder identity by prefix. A lease with no holder
+# is skipped.
+
+kapply objects.yaml
+kuba get pod --leader
+rows apple-db-leader
+kuba get pod --leader aple
+rows apple-db-leader
+kuba get pod --leader -o labels
+cmp stdout want-labels.txt
+! calls fzf
+! kuba get pod --leader bnana
+exitcode 1
+stderr bnana
+
+-- want-labels.txt --
+app  apple
+tier  db
+-- objects.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-web
+  labels: {app: apple, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-db-leader
+  labels: {app: apple, tier: db}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-web
+  labels: {app: banana, tier: web}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata: {name: apple}
+spec: {holderIdentity: apple-db-leader_1}
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata: {name: banana}
+spec: {}
