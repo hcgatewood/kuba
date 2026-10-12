@@ -1,0 +1,72 @@
+# ifne runs a command on its own stdin, but only if stdin isn't empty, so a viewer format with nothing to show doesn't
+# open fx on nothing.
+
+kuba ifne fx
+! stdout .
+! calls fx
+
+# The command gets stdin byte for byte, and its output and exit code come back.
+env E2E_OUT_FX='hello from fx'
+env E2E_EXIT_FX=3
+stdin apple.json
+! kuba ifne fx --theme=dark
+exitcode 3
+stdout '^hello from fx$'
+calls fx
+cmp stdout want-calls.txt
+env E2E_EXIT_FX=
+
+# A command killed by a signal exits 128 plus the signal's number, as in a shell.
+stdin apple.json
+! kuba ifne sh -c 'kill -TERM $$'
+exitcode 143
+
+stdin apple.json
+! kuba ifne mango
+exitcode 1
+stderr mango
+
+# Python bug: when the command exits without reading all of a large stdin, ifne exits 0, losing the command's code.
+exec sh -c 'yes apple-1 | head -n 50000 >big.txt'
+stdin big.txt
+[impl:python] kuba ifne sh -c 'exit 3'
+[impl:go] ! kuba ifne sh -c 'exit 3'
+[impl:go] exitcode 3
+
+# Python bug: with no command, ifne crashes on any input, and succeeds on none. Go calls it a usage error either way.
+stdin apple.json
+! kuba ifne
+[impl:python] exitcode 1
+[impl:python] stderr IndexError
+[impl:go] exitcode 2
+[impl:python] kuba ifne
+[impl:go] ! kuba ifne
+[impl:go] exitcode 2
+
+# Python bug: ifne reads -h or --help anywhere as a request for its own help, so the command never runs. Go passes it
+# to the command.
+stdin apple.json
+kuba ifne fx -h
+[impl:python] stdout 'Usage: kuba ifne'
+calls fx
+[impl:python] ! stdout '^fx -h$'
+[impl:go] stdout '^fx -h$'
+
+# Python bug: ifne also drops a -- from the command's arguments. Go keeps it, dropping only one right after ifne.
+stdin apple.json
+kuba ifne fx -- --theme=light
+calls fx
+[impl:python] stdout '^fx --theme=light$'
+[impl:go] stdout '^fx -- --theme=light$'
+stdin apple.json
+kuba ifne -- fx --theme=solar
+calls fx
+stdout '^fx --theme=solar$'
+
+-- apple.json --
+{"kind": "Pod", "metadata": {"name": "apple-1"}}
+{"kind": "Pod", "metadata": {"name": "apple-2"}}
+-- want-calls.txt --
+fx --theme=dark
+| {"kind": "Pod", "metadata": {"name": "apple-1"}}
+| {"kind": "Pod", "metadata": {"name": "apple-2"}}

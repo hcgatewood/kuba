@@ -1,0 +1,233 @@
+# With --pods, sched also checks required pod affinity and anti-affinity against the pods already on each node's
+# topology domain: the nodes sharing its value of the term's topologyKey. A term looks in the pod's own namespace unless
+# it names namespaces or has a namespaceSelector, and an empty namespaceSelector means every namespace. Nodes are
+# cluster-scoped, so the script needs a server of its own. Python's sched works only through kubecolor (sched/lookup).
+
+mkcluster apple
+kapply namespaces.yaml
+kapply nodes.yaml pods.yaml
+env KUBA_KUBECTL=kubecolor
+kuba sched -f affinity.yaml --pass --names
+rows fig grape honey
+kuba sched -f affinity.yaml --pods
+cmp stdout want-affinity.txt
+
+# A failing term lists what the domain's candidate pods lack, negated, or, after a ∅ when it has no candidates at all,
+# what the term asks for.
+kuba sched -f affinity-web.yaml --pods
+cmp stdout want-affinity-web.txt
+
+# Python bug: after a ∅, a term's labelSelector and namespaces are joined with ∨, as if negated. Go joins them with ∧.
+kuba sched -f affinity-listed.yaml --pods --fail
+[impl:python] stdout '^FAIL  honey  pod_afnty \[zone\] ∅ app=apple ∨ namespaces∈kiwi$'
+[impl:go] stdout '^FAIL  honey  pod_afnty \[zone\] ∅ app=apple ∧ namespaces∈kiwi$'
+
+kuba sched -f anti-affinity.yaml --pods
+cmp stdout want-anti-affinity.txt
+kuba sched -f listed-namespaces.yaml --pods
+cmp stdout want-listed-namespaces.txt
+kuba sched -f namespace-selector.yaml --pods
+cmp stdout want-namespace-selector.txt
+kuba sched -f every-namespace.yaml --pods --fail --names
+rows honey
+kuba sched -f own-namespace.yaml --pods --fail --names
+! stdout .
+
+# Python bug: a term with no labelSelector matches every pod. Go follows the scheduler, where it matches none.
+kuba sched -f no-selector.yaml --pods --pass --names
+[impl:python] rows honey
+[impl:go] rows fig grape honey
+
+-- want-affinity.txt --
+PASS  fig
+PASS  grape
+FAIL  honey  pod_afnty [zone] ∅ app=apple
+-- want-affinity-web.txt --
+FAIL  fig  pod_afnty [zone] app≠apple ∨ tier≠web
+FAIL  grape  pod_afnty [zone] app≠apple ∨ tier≠web
+FAIL  honey  pod_afnty [zone] ∅ app=apple ∧ tier=web
+-- want-anti-affinity.txt --
+FAIL  fig  pod_anti_afnty apple-1 [kubernetes.io/hostname] app∈apple,cherry
+FAIL  grape  pod_anti_afnty cherry-1 [kubernetes.io/hostname] app∈apple,cherry
+PASS  honey
+-- want-listed-namespaces.txt --
+FAIL  fig  pod_afnty [zone] app≠banana ∨ namespaces∉lemon
+FAIL  grape  pod_afnty [zone] app≠banana ∨ namespaces∉lemon
+PASS  honey
+-- want-namespace-selector.txt --
+FAIL  fig  pod_afnty [zone] app≠banana ∨ team≠blue
+FAIL  grape  pod_afnty [zone] app≠banana ∨ team≠blue
+PASS  honey
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kiwi
+  labels: {team: red}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lemon
+  labels: {team: blue}
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig
+  labels: {zone: a, kubernetes.io/hostname: fig}
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: grape
+  labels: {zone: a, kubernetes.io/hostname: grape}
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: honey
+  labels: {zone: b, kubernetes.io/hostname: honey}
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  namespace: kiwi
+  labels: {app: apple}
+spec:
+  nodeName: fig
+  containers: [{name: main, image: busybox}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: banana-1
+  namespace: lemon
+  labels: {app: banana}
+spec:
+  nodeName: honey
+  containers: [{name: main, image: busybox}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cherry-1
+  namespace: kiwi
+  labels: {app: cherry}
+spec:
+  nodeName: grape
+  containers: [{name: main, image: busybox}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: egg-1
+  namespace: lemon
+  labels: {app: egg}
+spec:
+  nodeName: grape
+  containers: [{name: main, image: busybox}]
+-- affinity.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector: {matchLabels: {app: apple}}
+        topologyKey: zone
+  containers: [{name: main, image: busybox}]
+-- affinity-web.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector: {matchLabels: {app: apple, tier: web}}
+        topologyKey: zone
+  containers: [{name: main, image: busybox}]
+-- affinity-listed.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector: {matchLabels: {app: apple}}
+        namespaces: [kiwi]
+        topologyKey: zone
+  containers: [{name: main, image: busybox}]
+-- anti-affinity.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions: [{key: app, operator: In, values: [apple, cherry]}]
+        topologyKey: kubernetes.io/hostname
+  containers: [{name: main, image: busybox}]
+-- listed-namespaces.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector: {matchLabels: {app: banana}}
+        namespaces: [lemon]
+        topologyKey: zone
+  containers: [{name: main, image: busybox}]
+-- namespace-selector.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector: {matchLabels: {app: banana}}
+        namespaceSelector: {matchLabels: {team: blue}}
+        topologyKey: zone
+  containers: [{name: main, image: busybox}]
+-- every-namespace.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector: {matchLabels: {app: banana}}
+        namespaceSelector: {}
+        topologyKey: zone
+  containers: [{name: main, image: busybox}]
+-- own-namespace.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector: {matchLabels: {app: banana}}
+        topologyKey: zone
+  containers: [{name: main, image: busybox}]
+-- no-selector.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut, namespace: kiwi}
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+  containers: [{name: main, image: busybox}]

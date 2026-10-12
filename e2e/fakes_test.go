@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
 	"github.com/lithammer/fuzzysearch/fuzzy"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/term"
@@ -47,6 +48,7 @@ const (
 func fakeCommands() map[string]func() {
 	cmds := map[string]func(){
 		"fzf":         fzfMain,
+		"kubecolor":   kubecolorMain,
 		"kubectl-rec": kubectlRecMain,
 		ptyCommand:    ptyMain,
 	}
@@ -191,6 +193,22 @@ func kubectlRecMain() {
 
 	record("kubectl", args, "") // leave stdin unread, for the real kubectl
 	err := execKubectl(args)
+
+	fatalf("%v", err)
+}
+
+// kubecolorFlags are the kubecolor flags kuba passes, which kubectl itself would reject.
+var kubecolorFlags = []string{"--force-colors", "--plain"}
+
+// kubecolorMain stands in for kubecolor via KUBA_KUBECTL: it records argv, drops kubecolor's own flags, then execs the
+// real kubectl.
+//
+// It never colors, so output reads the same as plain kubectl's.
+func kubecolorMain() {
+	args := os.Args[1:]
+
+	record("kubecolor", args, "") // leave stdin unread, for the real kubectl
+	err := execKubectl(lo.Without(args, kubecolorFlags...))
 
 	fatalf("%v", err)
 }

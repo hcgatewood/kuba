@@ -1,0 +1,221 @@
+# exec resolves a pod and a container like logs, with a single pick, then opens an interactive shell in the container,
+# which must be running. --loud says where it's connecting even with --command.
+
+mkcluster banana
+kapply pods.yaml
+kapply -c banana banana-pods.yaml
+! kuba exec bnana --command
+exitcode 1
+stderr banana-1
+kuba exec apple-1 side --command
+stdout 'apple-1 .*sidecar'
+! kuba exec apple-1 init --command
+exitcode 1
+stderr init-db
+kuba exec apple-2 --loud --command
+stderr apple-2
+
+# Python bug: the picker offers every container, so picking an init container that has exited, or a regular one still
+# waiting on init, only errors. Go offers only running containers.
+kuba exec apple-1 --command
+calls fzf
+[impl:python] cmp stdout want-fzf.txt
+[impl:go] stdout sidecar
+[impl:go] ! stdout init-db
+
+# --guess takes the likeliest main container without asking, never an init container.
+kuba exec apple-1 --guess --command
+stdout 'apple-1 .*main'
+kuba exec cherry --guess --command
+stdout 'cherry-1 .*cherry'
+
+# With no regular container running, exec is an error, with or without --guess. Go never lands in an init container on
+# its own, and names the one a pod is still waiting on, but not a native sidecar, which runs beside the app.
+! kuba exec fig-1 --command
+exitcode 1
+stderr main
+[impl:go] stderr init-db
+! kuba exec fig-1 --guess --command
+exitcode 1
+stderr main
+[impl:go] stderr init-db
+! kuba exec grape --command
+exitcode 1
+stderr main
+! stderr mesh-proxy
+! kuba exec grape --guess --command
+exitcode 1
+stderr main
+! stderr mesh-proxy
+
+# -it is kuba's to set, so giving it changes nothing. Python bug: it adds a second one.
+kuba exec apple-2 -it --command
+[impl:python] stdout ' -it -it '
+[impl:go] stdout -count=1 ' -it '
+
+# The pod lookup honors -n and --multi-cluster. Python bug: it ignores --context, as get does.
+exec kubectl config use-context banana
+kuba exec egg -n kiwi --command
+stdout egg-1
+stdout ' --namespace=kiwi '
+exec kubectl config use-context apple
+[impl:python] ! kuba exec dnut --context=banana --command
+[impl:python] exitcode 1
+[impl:python] stderr dnut
+[impl:go] kuba exec dnut --context=banana --command
+[impl:go] stdout donut-1
+[impl:go] stdout ' --context=banana '
+env KUBA_CLUSTERS='k*=*'
+kuba exec dnut --multi-cluster --command
+stdout donut-1
+stdout ' --context=banana '
+env KUBA_CLUSTERS=
+
+# Python bug: words after -- still fill POD and CONTAINER first, and the rest lose the -- and get -it -- sh appended.
+[impl:python] ! kuba exec apple-2 --command -- ls -la
+[impl:python] stderr 'container query .ls.'
+[impl:go] kuba exec apple-2 --command -- ls -la
+[impl:go] stdout ' -- ls -la$'
+kuba exec apple-2 main --command -- ls -la
+[impl:python] cmp stdout want-ls-command.txt
+[impl:go] stdout ' -- ls -la$'
+[impl:go] ! stdout ' sh'
+
+# Python bug: -c lands after the container kuba resolved, after asking fzf, and overrides it. Go takes -c as the
+# container's exact name.
+kuba exec apple-1 -c sidecar --command
+[impl:python] cmp stdout want-c-command.txt
+[impl:go] stdout sidecar
+[impl:go] ! stdout main
+
+# Python first asks the container for bash with a separate exec, then hands off bash or sh. Go hands off one sh -c that
+# prefers bash.
+env KUBA_KUBECTL=kubectl-rec
+env E2E_OUT_KUBECTL=/bin/bash
+kuba exec apple-2
+calls kubectl
+[impl:python] cmp stdout want-calls.txt
+[impl:go] ! stdout 'which bash'
+[impl:go] stdout 'command -v bash'
+env KUBA_KUBECTL=kubectl
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba exec apple-2 --command
+cmp stdout want-command.txt
+kuba exec apple-1 main --command
+cmp stdout want-main-command.txt
+kuba exec apple-1 --guess --command
+cmp stdout want-main-command.txt
+kuba exec cherry --guess --command
+cmp stdout want-cherry-command.txt
+
+-- want-fzf.txt --
+fzf --bind=shift-tab:up,tab:down --query= '--prompt=Choose container: ' --ansi
+| main
+| sidecar
+| init-db
+-- want-ls-command.txt --
+kubectl exec apple-2 -c main ls -la -it -- sh
+-- want-c-command.txt --
+kubectl exec apple-1 -c main -c sidecar -it -- sh
+-- want-calls.txt --
+kubectl get pod apple-2
+kubectl get pod apple-2 '--output=jsonpath={.spec.containers[*].name} {.spec.initContainers[*].name}'
+kubectl exec apple-2 --container=main -- which bash
+kubectl get pod apple-2 --output=json
+kubectl exec apple-2 -c main -it -- bash
+-- want-command.txt --
+kubectl exec apple-2 -c main -it -- sh
+-- want-main-command.txt --
+kubectl exec apple-1 -c main -it -- sh
+-- want-cherry-command.txt --
+kubectl exec cherry-1 -c cherry -it -- sh
+-- banana-pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: donut-1}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: egg-1, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec:
+  initContainers: [{name: init-db, image: busybox}]
+  containers: [{name: main, image: busybox}, {name: sidecar, image: envoy}]
+status:
+  phase: Running
+  initContainerStatuses:
+  - {name: init-db, image: busybox, imageID: "", ready: false, restartCount: 0, state: {terminated: {exitCode: 0}}}
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: sidecar, image: envoy, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: fig-1}
+spec:
+  initContainers: [{name: init-db, image: busybox}]
+  containers: [{name: main, image: busybox}]
+status:
+  phase: Pending
+  initContainerStatuses:
+  - {name: init-db, image: busybox, imageID: "", ready: false, restartCount: 0, state: {running: {}}}
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: false, restartCount: 0, state: {waiting: {reason: PodInitializing}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: grape-1}
+spec:
+  initContainers: [{name: mesh-proxy, image: envoy, restartPolicy: Always}]
+  containers: [{name: main, image: busybox}]
+status:
+  phase: Running
+  initContainerStatuses:
+  - {name: mesh-proxy, image: envoy, imageID: "", ready: true, restartCount: 0, started: true, state: {running: {}}}
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: false, restartCount: 5, state: {waiting: {reason: CrashLoopBackOff}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: cherry-1}
+spec:
+  containers: [{name: log-agent, image: busybox}, {name: cherry, image: busybox}, {name: metrics-exporter, image: busybox}]
+status:
+  phase: Running
+  containerStatuses:
+  - {name: cherry, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: log-agent, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: metrics-exporter, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}

@@ -1,0 +1,34 @@
+# Switching to a cluster that rejects namespace listing, as with expired credentials.
+
+mkcluster fig
+exec kubectl config unset users.fig.client-certificate-data
+exec kubectl config unset users.fig.client-key-data
+exec kubectl config set-credentials fig --token=nope
+exec kubectl config set-context apple --namespace=kiwi
+
+# A plain switch needs no listing.
+kuba ctx fig
+current fig
+kuba ctx apple
+
+# Python's failed listing blocks the switch, or its namespace half. Go switches anyway and warns. With no list to check
+# names against, it keeps the namespace without checking that fig has it, and takes a namespace query as the exact name.
+[impl:python] ! kuba cluster fig kiwi
+[impl:python] current apple
+[impl:go] kuba cluster fig kiwi
+[impl:go] stderr Unauthorized
+[impl:go] current fig kiwi
+[impl:go] kuba ctx apple
+
+[impl:python] ! kuba ctx fig --ns
+[impl:python] current fig $NS
+[impl:go] kuba ctx fig --ns
+[impl:go] stderr Unauthorized
+[impl:go] current fig kiwi
+
+# Even a partial query is set as typed, not guessed at.
+[impl:python] ! kuba ns lem
+[impl:python] current fig $NS
+[impl:go] kuba ns lem
+[impl:go] stderr Unauthorized
+[impl:go] current fig lem

@@ -32,7 +32,8 @@ import (
 // server is one envtest API server (kube-apiserver + etcd) plus an admin client for seeding it.
 //
 // envtest has no controllers, scheduler, or kubelet: pods stay as written, namespaces never finish deleting, and
-// ServiceAccount admission is disabled.
+// ServiceAccount admission is disabled. So is TaintNodesByCondition, since only a controller would lift the not-ready
+// taint it puts on every new node.
 type server struct {
 	env    *envtest.Environment
 	cfg    *rest.Config
@@ -61,6 +62,7 @@ func startServer() (*server, error) {
 // newServer starts envtest and connects an admin client to it.
 func newServer() (*server, error) {
 	env := &envtest.Environment{}
+	env.ControlPlane.GetAPIServer().Configure().Append("disable-admission-plugins", "TaintNodesByCondition")
 	cfg, err := env.Start()
 	if err != nil {
 		return nil, fmt.Errorf("start envtest: %w", err)

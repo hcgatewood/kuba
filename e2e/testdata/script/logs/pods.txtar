@@ -1,0 +1,112 @@
+# Several pods go to stern as one name regex, so they must share a namespace and a cluster. A pod whose containers have
+# no status yet has no logs. --leader picks the pod holding a lease.
+
+mkcluster apple banana
+kapply -c apple pods.yaml
+kapply -c banana banana-pods.yaml
+env KUBA_CLUSTERS='k*=*'
+! kuba logs bnana --command
+exitcode 1
+stderr banana-1
+
+env FZF_PICK=all
+! kuba logs -A aple --command
+exitcode 1
+stderr namespace
+! kuba logs aple --multi-cluster --command
+exitcode 1
+stderr cluster
+kuba logs aple
+calls kubectl-stern
+[impl:python] cmp stdout want-stern.txt
+[impl:go] stdout '\^\(apple-1\|apple-leader\)\$'
+env FZF_PICK=
+
+# The pod lookup honors --leader, -l, -n, and --multi-cluster.
+kuba logs --leader --command
+stdout apple-leader
+kuba logs -l app=apple --guess --command
+stdout apple-1
+! stdout apple-leader
+kuba logs -n kiwi aple --command
+stdout apple-2
+stdout kiwi
+kuba logs apple-3 --multi-cluster --command
+stdout apple-3
+stdout banana
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba logs --leader --command
+cmp stdout want-leader-command.txt
+kuba logs -l app=apple --guess --command
+cmp stdout want-label-command.txt
+kuba logs -n kiwi aple --command
+cmp stdout want-kiwi-command.txt
+kuba logs apple-3 --multi-cluster --command
+cmp stdout want-banana-command.txt
+
+-- want-stern.txt --
+kubectl-stern '^(apple-1|apple-leader)$' --since=1h --no-follow --color=always
+-- want-leader-command.txt --
+kubectl logs apple-leader --container=main --since=1h
+-- want-label-command.txt --
+kubectl logs apple-1 --container=main --since=1h
+-- want-kiwi-command.txt --
+kubectl logs --namespace=kiwi apple-2 --container=main --since=1h
+-- want-banana-command.txt --
+kubectl logs --namespace=logs-pods --context=banana apple-3 --container=main --since=1h
+-- pods.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-1
+  labels: {app: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-leader
+  labels: {app: apple}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2, namespace: kiwi}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata: {name: apple}
+spec: {holderIdentity: apple-leader_1}
+-- banana-pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-3}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}

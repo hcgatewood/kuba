@@ -1,0 +1,101 @@
+# --since defaults to 1h, or to 1s with -f. Other kubectl logs flags pass through.
+
+kapply pods.yaml
+kuba logs apple-2 --command
+stdout '--since.1h'
+kuba logs apple-2 -f --command
+stdout '--since.1s'
+kuba logs apple-2 --since 5m --command
+stdout 5m
+! stdout 1h
+kuba logs apple-2 --previous --tail 10 --command
+stdout ' --previous'
+stdout '--tail.10'
+env FZF_PICK=all
+kuba logs aple -f --command
+stdout '--since.1s'
+! stdout no-follow
+env FZF_PICK=
+
+# Python bug: -c lands after the container kuba resolved, sometimes after asking fzf, and overrides it. Go takes -c as
+# the container's exact name, and refuses it alongside a CONTAINER query.
+kuba logs apple-1 -c sidecar --command
+[impl:python] cmp stdout want-c-command.txt
+[impl:go] stdout sidecar
+[impl:go] ! stdout main
+[impl:go] ! calls fzf
+[impl:python] kuba logs apple-1 main -c sidecar --command
+[impl:python] cmp stdout want-query-c-command.txt
+[impl:go] ! kuba logs apple-1 main -c sidecar --command
+[impl:go] exitcode 2
+
+# Python hands --field-selector to kubectl logs, which has no such flag, after a pod lookup that ignored it. Go
+# filters the pod lookup with it.
+kuba logs --field-selector=metadata.name=apple-2 --command
+[impl:python] cmp stdout want-field-selector-command.txt
+[impl:go] stdout apple-2
+[impl:go] ! stdout field-selector
+
+# --follow is -f's long form, with the same 1s default for --since.
+kuba logs apple-2 --follow --command
+[impl:python] cmp stdout want-follow-command.txt
+[impl:go] stdout ' --since=1s'
+[impl:go] stdout ' --follow'
+
+# Go drops stern's --color=always from a printed command, since it runs later, on a terminal.
+env FZF_PICK=all
+kuba logs aple --command
+[impl:python] cmp stdout want-stern-command.txt
+[impl:go] ! stdout color
+env FZF_PICK=
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba logs apple-2 --command
+cmp stdout want-command.txt
+kuba logs apple-2 -f --command
+cmp stdout want-follow-command.txt
+kuba logs apple-2 --since 5m --command
+cmp stdout want-since-command.txt
+kuba logs apple-2 --previous --tail 10 --command
+cmp stdout want-passthrough-command.txt
+env FZF_PICK=all
+kuba logs aple -f --command
+cmp stdout want-stern-follow-command.txt
+
+-- want-c-command.txt --
+kubectl logs apple-1 --container=main -c sidecar --since=1h
+-- want-query-c-command.txt --
+kubectl logs apple-1 --container=main -c sidecar --since=1h
+-- want-field-selector-command.txt --
+kubectl logs apple-1 --container=main --field-selector=metadata.name=apple-2 --since=1h
+-- want-stern-command.txt --
+kubectl stern '^(apple-1|apple-2)$' --since=1h --no-follow --color=always
+-- want-command.txt --
+kubectl logs apple-2 --container=main --since=1h
+-- want-follow-command.txt --
+kubectl logs apple-2 --container=main --since=1s --follow
+-- want-since-command.txt --
+kubectl logs apple-2 --container=main --since=5m
+-- want-passthrough-command.txt --
+kubectl logs apple-2 --container=main --previous --tail 10 --since=1h
+-- want-stern-follow-command.txt --
+kubectl stern '^(apple-1|apple-2)$' --since=1s --color=always
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}, {name: sidecar, image: envoy}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: sidecar, image: envoy, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}

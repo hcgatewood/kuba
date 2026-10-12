@@ -1,5 +1,5 @@
 # On a terminal, listings print headers, and --no-headers drops them. Off a terminal, as in every other script, headers
-# never print. Tables stay plain either way: color comes only from kubecolor, which the harness lacks. -A and nodes need
+# never print. Tables stay plain either way: color comes only from kubecolor, whose fake never colors. -A and nodes need
 # a server of its own, and banana is a sibling for --multi-cluster.
 
 mkcluster apple banana

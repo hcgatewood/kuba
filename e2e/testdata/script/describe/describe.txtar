@@ -1,0 +1,62 @@
+# describe resolves names like get, asks fzf to pick when several match, and passes kubectl describe flags through.
+# With --no-select and no query, kubectl describes the whole listing.
+
+kapply pods.yaml
+kuba describe pod bnana
+stdout '^Name: +banana-1$'
+stdout '^Events: '
+! calls fzf
+kuba describe pod aple
+stdout '^Name: +apple-1$'
+! stdout apple-2
+calls fzf
+cmp stdout want-fzf.txt
+kuba describe pod bnana --show-events=false
+stdout '^Name: +banana-1$'
+! stdout '^Events: '
+kuba describe pod --no-select
+stdout -count=3 '^Name: '
+
+# Python refuses to describe more than one object. Go describes every pick.
+[impl:python] ! kuba describe pod aple --no-select
+[impl:python] stderr 'more than 1 pod'
+[impl:go] kuba describe pod aple --no-select
+[impl:go] stdout '^Name: +apple-1$'
+[impl:go] stdout '^Name: +apple-2$'
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba describe pod bnana --command
+cmp stdout want-command.txt
+kuba describe pod bnana --show-events=false --command
+cmp stdout want-passthrough-command.txt
+kuba describe pod --no-select --command
+cmp stdout want-listing-command.txt
+
+-- want-fzf.txt --
+fzf --multi --query=aple '--prompt=Choose pod: ' '--header=NAME  READY  STATUS  RESTARTS  AGE' --ansi
+| apple-1  0/1  Running  0  <age>
+| apple-2  0/1  Running  0  <age>
+-- want-command.txt --
+kubectl describe pod banana-1
+-- want-passthrough-command.txt --
+kubectl describe pod banana-1 --show-events=false
+-- want-listing-command.txt --
+kubectl describe pod
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}

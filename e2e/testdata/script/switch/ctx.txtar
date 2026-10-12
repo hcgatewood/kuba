@@ -1,0 +1,113 @@
+# ctx switches contexts the same way ns switches namespaces, and --nss/--ns carry the namespace over.
+
+mkcluster apple banana cherry
+kapply -c apple namespaces.yaml
+kapply -c banana kiwi.yaml
+kuba ctx --list
+cmp stdout want-list.txt
+
+kuba ctx banana
+stderr 'Switched to context "banana"'
+current banana
+kuba ctx chr
+current cherry
+! calls fzf
+
+kuba ctx e
+current apple
+env FZF_PICK=match:banana
+kuba ctx
+current banana
+calls fzf
+cmp stdout want-fzf.txt
+env FZF_PICK=
+
+# --command-multi prints the history form only when there was a choice to make.
+kuba ctx e --command-multi
+stdout '^kctx apple$'
+current banana
+kuba ctx chr --command-multi
+! stdout .
+current cherry
+
+# Python bug: --command-multi swaps --ns and --nss in the history form, so kctxn (ctx --ns) loses its flag.
+kuba ctx e --ns --command-multi
+[impl:python] stdout '^kctx apple$'
+[impl:go] stdout '^kctx .*--ns\b'
+kuba ctx e --nss --command-multi
+[impl:python] stdout '^kctx --ns apple$'
+[impl:go] stdout '^kctx .*--nss\b'
+
+# ctx picks the context itself, so --context is a usage error. Python's ctx has no --context.
+! kuba ctx apple --context=banana
+exitcode 2
+[impl:python] stderr 'No such option: --context'
+current cherry
+
+# Python bug: a query matching no context crashes.
+! kuba ctx kiwi
+exitcode 1
+[impl:python] stderr IndexError
+[impl:go] stderr kiwi
+current cherry
+
+# --nss keeps the namespace between sibling clusters (KUBA_CLUSTERS), and --ns keeps it anywhere, asking fzf when the
+# new cluster lacks it.
+exec kubectl config set-context apple --namespace=kiwi
+env KUBA_CLUSTERS='k*=*a*'
+kuba ctx apple
+kuba ctx banana --nss
+current banana kiwi
+kuba ctx cherry --nss
+current cherry $NS
+env KUBA_CLUSTERS=
+kuba ctx apple --ns
+current apple $NS
+kuba ns lemon
+rm $E2E_CALLS
+env FZF_PICK=match:default
+kuba ctx banana --ns
+current banana default
+calls fzf
+cmp stdout want-fzf-ns.txt
+env FZF_PICK=
+
+# Python bug: a context other than the current one takes its name from the CLUSTER column, so one named differently
+# from its cluster can't be reached.
+exec kubectl config set-context date --cluster=banana --user=banana --namespace=kiwi
+[impl:python] ! kuba ctx date
+[impl:go] kuba ctx date
+[impl:go] current date
+
+-- want-list.txt --
+*  apple  apple  apple  switch-ctx
+          banana  banana  banana  switch-ctx
+          cherry  cherry  cherry  switch-ctx
+-- want-fzf.txt --
+fzf --bind=shift-tab:up,tab:down --query=e '--prompt=Choose context: ' '--header=CURRENT  NAME  CLUSTER  AUTHINFO  NAMESPACE' --ansi
+|  apple  apple  apple  switch-ctx
+| *  cherry  cherry  cherry  switch-ctx
+fzf --bind=shift-tab:up,tab:down --query= '--prompt=Choose context: ' '--header=CURRENT  NAME  CLUSTER  AUTHINFO  NAMESPACE' --ansi
+| *  apple  apple  apple  switch-ctx
+|  banana  banana  banana  switch-ctx
+|  cherry  cherry  cherry  switch-ctx
+-- want-fzf-ns.txt --
+fzf --bind=shift-tab:up,tab:down --query= '--prompt=Choose namespace: ' '--header=NAME  STATUS  AGE' --ansi
+| default  Active  <age>
+| kiwi  Active  <age>
+| kube-node-lease  Active  <age>
+| kube-public  Active  <age>
+| kube-system  Active  <age>
+| switch-ctx  Active  <age>
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+-- kiwi.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}

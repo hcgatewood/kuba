@@ -1,0 +1,90 @@
+# sched fails a node whose NoSchedule or NoExecute taints the pod doesn't tolerate; PreferNoSchedule never blocks. A
+# toleration matches a taint's key, its value with Equal (the default) or any value with Exists, and its effect unless
+# it names none. Nodes are cluster-scoped, so the script needs a server of its own. Python's sched works only through
+# kubecolor (sched/lookup).
+
+mkcluster apple
+kapply nodes.yaml
+env KUBA_KUBECTL=kubecolor
+kuba sched -f none.yaml
+cmp stdout want-none.txt
+kuba sched -f tolerate.yaml
+cmp stdout want-tolerate.txt
+kuba sched -f wrong-value.yaml --fail --names
+rows grape honey
+
+# Python bug: a toleration with no key and Exists tolerates nothing. Go follows the scheduler, where it tolerates every
+# taint.
+kuba sched -f wildcard.yaml --pass --names
+[impl:python] rows fig
+[impl:go] rows fig grape honey
+
+# Python bug: a taint with no value prints as key=None. Go prints key:effect, as kubectl does.
+kapply ice.yaml
+kuba sched -f none.yaml --fail
+[impl:python] stdout '^FAIL  ice  taint maintenance=None:NoSchedule$'
+[impl:go] stdout '^FAIL  ice  taint maintenance:NoSchedule$'
+
+-- want-none.txt --
+PASS  fig
+FAIL  grape  taint dedicated=db:NoSchedule
+FAIL  honey  taint gpu=true:NoExecute ∨ arch=arm:NoSchedule
+-- want-tolerate.txt --
+PASS  fig
+PASS  grape
+FAIL  honey  taint arch=arm:NoSchedule
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: fig}
+---
+apiVersion: v1
+kind: Node
+metadata: {name: grape}
+spec:
+  taints: [{key: dedicated, value: db, effect: NoSchedule}]
+---
+apiVersion: v1
+kind: Node
+metadata: {name: honey}
+spec:
+  taints:
+  - {key: gpu, value: "true", effect: NoExecute}
+  - {key: arch, value: arm, effect: NoSchedule}
+  - {key: spot, value: "true", effect: PreferNoSchedule}
+-- ice.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: ice}
+spec:
+  taints: [{key: maintenance, effect: NoSchedule}]
+-- none.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  containers: [{name: main, image: busybox}]
+-- tolerate.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  tolerations:
+  - {key: dedicated, operator: Equal, value: db, effect: NoSchedule}
+  - {key: gpu, operator: Exists}
+  - {key: arch, operator: Exists, effect: NoExecute}
+  containers: [{name: main, image: busybox}]
+-- wrong-value.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  tolerations: [{key: dedicated, value: web}]
+  containers: [{name: main, image: busybox}]
+-- wildcard.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  tolerations: [{operator: Exists}]
+  containers: [{name: main, image: busybox}]

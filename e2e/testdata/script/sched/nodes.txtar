@@ -1,0 +1,171 @@
+# sched checks a pod's node constraints against every node: its nodeSelector, its required node affinity, and, with
+# --nodename, the node it's bound to. -f reads the pod from a file. Nodes are cluster-scoped, so the script needs a
+# server of its own. Python's sched works only through kubecolor (sched/lookup).
+
+mkcluster apple
+kapply nodes.yaml
+env KUBA_KUBECTL=kubecolor
+kuba sched -f selector.yaml
+cmp stdout want-selector.txt
+kuba sched -f selector.yaml --pass
+stdout '^PASS  fig$'
+! stdout FAIL
+kuba sched -f selector.yaml --fail --names
+rows grape honey
+
+# Python bug: a missing label prints as None. Go prints <none>, as kubectl does.
+kuba sched -f gpus.yaml --fail
+[impl:python] stdout '^FAIL  grape  label gpus None≠2$'
+[impl:go] stdout '^FAIL  grape  label gpus <none>≠2$'
+
+# Node affinity terms are ORed and their expressions ANDed. A failing node lists each term's unmet expressions, negated.
+kuba sched -f affinity-in.yaml
+cmp stdout want-affinity-in.txt
+kuba sched -f affinity-notin.yaml
+cmp stdout want-affinity-notin.txt
+
+# Python bug: Gt and Lt fail the whole command when a node lacks the label or its value isn't a number. Go treats that
+# node as not matching, as the scheduler does.
+[impl:python] ! kuba sched -f gt-missing.yaml
+[impl:python] exitcode 1
+[impl:python] stderr 'invalid value for Gt operator'
+[impl:go] kuba sched -f gt-missing.yaml --pass --names
+[impl:go] rows fig
+[impl:python] ! kuba sched -f lt-text.yaml
+[impl:python] exitcode 1
+[impl:python] stderr 'invalid value for Lt operator'
+[impl:go] kuba sched -f lt-text.yaml --pass --names
+[impl:go] ! stdout .
+
+# Python bug: an empty node selector term matches every node. Go follows the scheduler, where it matches none.
+kuba sched -f empty-term.yaml --pass --names
+[impl:python] rows fig grape honey
+[impl:go] rows fig
+
+# nodeName counts only with --nodename.
+kuba sched -f bound.yaml --pass --names
+rows fig grape honey
+kuba sched -f bound.yaml --nodename
+cmp stdout want-bound.txt
+
+-- want-selector.txt --
+PASS  fig
+FAIL  grape  label disk hdd≠ssd label zone b≠a
+FAIL  honey  label disk nvme≠ssd label zone c≠a
+-- want-affinity-in.txt --
+PASS  fig
+FAIL  grape  node_afnty (zone∉a) ∨ (cores≤10)
+PASS  honey
+-- want-affinity-notin.txt --
+FAIL  fig  node_afnty (∃disk) ∨ (cores≥8 ∧ metadata.name∉grape)
+PASS  grape
+FAIL  honey  node_afnty (zone∈c ∧ ∃disk) ∨ (cores≥8 ∧ metadata.name∉grape)
+-- want-bound.txt --
+FAIL  fig  bound grape
+PASS  grape
+FAIL  honey  bound grape
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig
+  labels: {zone: a, disk: ssd, cores: "8", gpus: "2"}
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: grape
+  labels: {zone: b, disk: hdd, cores: "4"}
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: honey
+  labels: {zone: c, disk: nvme, cores: "16"}
+-- selector.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  nodeSelector: {disk: ssd, zone: a}
+  containers: [{name: main, image: busybox}]
+-- gpus.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  nodeSelector: {gpus: "2"}
+  containers: [{name: main, image: busybox}]
+-- affinity-in.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - {key: zone, operator: In, values: [a]}
+          - {key: disk, operator: Exists}
+        - matchExpressions:
+          - {key: cores, operator: Gt, values: ["10"]}
+  containers: [{name: main, image: busybox}]
+-- affinity-notin.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - {key: zone, operator: NotIn, values: [c]}
+          - {key: disk, operator: DoesNotExist}
+        - matchExpressions:
+          - {key: cores, operator: Lt, values: ["8"]}
+          matchFields:
+          - {key: metadata.name, operator: In, values: [grape]}
+  containers: [{name: main, image: busybox}]
+-- gt-missing.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions: [{key: gpus, operator: Gt, values: ["1"]}]
+  containers: [{name: main, image: busybox}]
+-- lt-text.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions: [{key: disk, operator: Lt, values: ["5"]}]
+  containers: [{name: main, image: busybox}]
+-- empty-term.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - {}
+        - matchExpressions: [{key: zone, operator: In, values: [a]}]
+  containers: [{name: main, image: busybox}]
+-- bound.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple, namespace: kiwi}
+spec:
+  nodeName: grape
+  containers: [{name: main, image: busybox}]

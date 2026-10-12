@@ -1,0 +1,77 @@
+# --any connects to a ready worker node without asking, the newest one. Python bugs: it skips only nodes with the old
+# master role, not control-plane; it reads readiness from whichever condition is listed last, ignoring its status; and
+# -l replaces the worker filter instead of narrowing it. Nodes are cluster-scoped, so the script needs a server of its
+# own, and it staggers them so creation times differ.
+
+mkcluster apple
+kapply --stagger old.yaml new.yaml
+kuba ssh --any --use-name --command
+stdout '^ssh fig-worker-b$'
+! calls fzf
+
+[impl:python] kuba ssh control --any --use-name --command
+[impl:python] stdout '^ssh fig-control-plane$'
+[impl:go] ! kuba ssh control --any --use-name --command
+[impl:go] exitcode 1
+
+[impl:python] kuba ssh not --any --use-name --command
+[impl:python] stdout '^ssh fig-not-ready$'
+[impl:go] ! kuba ssh not --any --use-name --command
+[impl:go] exitcode 1
+
+[impl:python] ! kuba ssh worker-c --any --use-name --command
+[impl:python] exitcode 1
+[impl:go] kuba ssh worker-c --any --use-name --command
+[impl:go] stdout '^ssh fig-worker-c$'
+
+[impl:python] kuba ssh master --any -l zone=b --use-name --command
+[impl:python] stdout '^ssh fig-master$'
+[impl:go] ! kuba ssh master --any -l zone=b --use-name --command
+[impl:go] exitcode 1
+
+-- old.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-control-plane
+  labels: {node-role.kubernetes.io/control-plane: ""}
+status:
+  conditions: [{type: Ready, status: "True"}]
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-master
+  labels: {node-role.kubernetes.io/master: "", zone: b}
+status:
+  conditions: [{type: Ready, status: "True"}]
+---
+apiVersion: v1
+kind: Node
+metadata: {name: fig-not-ready}
+status:
+  conditions: [{type: Ready, status: "False"}]
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-worker-a
+  labels: {zone: a}
+status:
+  conditions: [{type: Ready, status: "True"}]
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-worker-c
+  labels: {zone: c}
+status:
+  conditions: [{type: Ready, status: "True"}, {type: MemoryPressure, status: "False"}]
+-- new.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig-worker-b
+  labels: {zone: b}
+status:
+  conditions: [{type: Ready, status: "True"}]

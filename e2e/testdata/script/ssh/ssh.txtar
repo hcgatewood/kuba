@@ -1,0 +1,120 @@
+# ssh connects to a node's best address: ExternalIP, then InternalIP, then Hostname, then the node's name. --use-name (or
+# KUBA_SSH_USE_NAME) takes the name, and --pod connects to a pod's node. Nodes are cluster-scoped, so the script needs a
+# server of its own.
+
+mkcluster apple banana
+kapply nodes.yaml pods.yaml
+kapply -c banana banana-nodes.yaml
+kuba ssh fig --command
+stdout '^ssh 203.0.113.1$'
+kuba ssh grape --command
+stdout '^ssh 10.0.0.2$'
+kuba ssh honey --command
+stdout '^ssh honey.example.com$'
+kuba ssh ice --command
+stdout '^ssh ice$'
+kuba ssh fig --use-name --command
+stdout '^ssh fig$'
+env KUBA_SSH_USE_NAME=true
+kuba ssh fig --command
+stdout '^ssh fig$'
+env KUBA_SSH_USE_NAME=
+
+kuba ssh apple-1 --pod --command
+stdout '^ssh 10.0.0.2$'
+! kuba ssh apple-2 --pod --command
+exitcode 1
+stderr apple-2
+! kuba ssh mango --command
+exitcode 1
+stderr mango
+
+# Without --command, or with --loud, ssh says where it's connecting. What runs is the command --command prints.
+kuba ssh fig --loud --command
+stderr 'Connecting to 203.0.113.1 in apple'
+kuba ssh fig
+stderr 'Connecting to 203.0.113.1 in apple'
+calls ssh
+stdout '^ssh 203.0.113.1$'
+
+# Python bug: a failing ssh exits 1, losing ssh's own code. Go exits with it, as with any final command.
+env E2E_EXIT_SSH=255
+! kuba ssh fig
+[impl:python] exitcode 1
+[impl:go] exitcode 255
+env E2E_EXIT_SSH=
+
+# With no query, fzf picks the node.
+env FZF_PICK=match:honey
+kuba ssh --command
+stdout '^ssh honey.example.com$'
+calls fzf
+[impl:python] cmp stdout want-fzf.txt
+[impl:go] stdout '^fzf '
+[impl:go] stdout '^\| honey '
+env FZF_PICK=
+
+# Go looks where --context points. Python's ssh has no --context.
+[impl:python] ! kuba ssh jam --context=banana --command
+[impl:python] exitcode 2
+[impl:python] stderr 'No such option: --context'
+[impl:go] kuba ssh jam --context=banana --command
+[impl:go] stdout '^ssh 10.0.1.1$'
+
+-- want-fzf.txt --
+fzf --bind=shift-tab:up,tab:down --query= '--prompt=Choose node: ' '--header=NAME  STATUS  ROLES  AGE  VERSION  INSTANCE-TYPE' --ansi
+| ice  Ready  <none>  <age>
+| honey  Ready  <none>  <age>
+| grape  Ready  <none>  <age>
+| fig  Ready  <none>  <age>
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: fig}
+status:
+  addresses:
+  - {type: Hostname, address: fig.example.com}
+  - {type: InternalIP, address: 10.0.0.1}
+  - {type: ExternalIP, address: 203.0.113.1}
+  conditions: [{type: Ready, status: "True"}]
+---
+apiVersion: v1
+kind: Node
+metadata: {name: grape}
+status:
+  addresses:
+  - {type: Hostname, address: grape.example.com}
+  - {type: InternalIP, address: 10.0.0.2}
+  conditions: [{type: Ready, status: "True"}]
+---
+apiVersion: v1
+kind: Node
+metadata: {name: honey}
+status:
+  addresses: [{type: Hostname, address: honey.example.com}]
+  conditions: [{type: Ready, status: "True"}]
+---
+apiVersion: v1
+kind: Node
+metadata: {name: ice}
+status:
+  conditions: [{type: Ready, status: "True"}]
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {nodeName: grape, containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Pending}
+-- banana-nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: jam}
+status:
+  addresses: [{type: InternalIP, address: 10.0.1.1}]
+  conditions: [{type: Ready, status: "True"}]

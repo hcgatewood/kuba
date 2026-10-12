@@ -1,0 +1,103 @@
+# shellenv's options and env vars pick which names it defines.
+
+kapply objects.yaml
+mkcontext banana banana-east banana-west
+env SHELL=/bin/zsh
+
+# --list prints every resource letter, and --listq only those matching a query, fuzzily. klst runs either.
+kuba shellenv --list
+rows c=configmap d=deployment e=exec j=job l=log m=daemonset n=node o=cronjob p=pod q=replicaset r=secret s=service x=lease
+kuba shellenv --listq dep
+rows d=deployment
+
+# Python bug: an empty query counts as no --listq at all, so it prints the whole shellenv output instead. Go lists
+# every letter, as --list does.
+exec kuba shellenv --list
+cp stdout list.txt
+exec kuba shellenv --listq ''
+[impl:python] stdout '^alias kpn='
+[impl:go] cmp stdout list.txt
+
+shellenv
+shell 'klst dep'
+rows d=deployment
+defines kpn kl kns
+! defines ktn
+
+# KUBA_SHELLENV_RESOURCES, or --resources in its place, adds letters and overrides built-in ones.
+env KUBA_SHELLENV_RESOURCES=t=configmap,p=service
+kuba shellenv --list
+rows c=configmap d=deployment e=exec j=job l=log m=daemonset n=node o=cronjob p=service q=replicaset r=secret s=service t=configmap x=lease
+shellenv
+shell 'ktn; kpn'
+rows cherry donut
+env KUBA_SHELLENV_RESOURCES=
+shellenv --no-native --resources t=configmap
+defines ktn kl kns
+! defines kpn
+
+shellenv --no-resources
+defines kl kns
+! defines kpn ktn
+shellenv --no-containers
+defines kpn kns
+! defines ktn kl
+
+# KUBA_CLUSTERS names a function for each context a pattern matches, with whatever * matched appended.
+env KUBA_CLUSTERS='ban=banana,ban*=banana-*'
+shellenv
+defines kban kbaneast kbanwest
+shell 'kbanwest kube-system'
+current banana-west kube-system
+exec kubectl config use-context apple
+
+# Go drops shellenv's --clusters, which takes the pattern map in place of KUBA_CLUSTERS, since --clusters elsewhere
+# picks clusters for one command.
+env KUBA_CLUSTERS=
+[impl:python] shellenv --clusters ban=banana
+[impl:python] defines kban
+[impl:go] ! kuba shellenv --clusters ban=banana
+[impl:go] exitcode 2
+[impl:go] stderr clusters
+
+# A cluster function can't take a fixed function's name. Python bug: it defines both, and the fixed kns silently
+# wins. Go refuses.
+env KUBA_CLUSTERS=ns=banana
+[impl:python] shellenv
+[impl:python] shell 'kns kube-system'
+[impl:python] current apple kube-system
+[impl:go] ! kuba shellenv
+[impl:go] exitcode 1
+[impl:go] stderr kns
+
+# A malformed env var is an error. Python exits 2 as if the command line were wrong; Go exits 1, since the command
+# line is fine.
+env KUBA_CLUSTERS=nonsense
+! kuba shellenv
+[impl:python] exitcode 2
+[impl:go] exitcode 1
+stderr nonsense
+env KUBA_CLUSTERS=
+env KUBA_SHELLENV_RESOURCES=pear
+! kuba shellenv
+[impl:python] exitcode 2
+[impl:go] exitcode 1
+stderr pear
+env KUBA_SHELLENV_RESOURCES=
+
+! kuba shellenv --resources pear
+exitcode 2
+stderr pear
+! kuba shellenv --shell bash
+exitcode 2
+stderr bash
+
+-- objects.yaml --
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: cherry}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: donut}
+spec: {ports: [{port: 80}]}

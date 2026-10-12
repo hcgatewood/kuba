@@ -1,0 +1,77 @@
+# ns sets the current context's namespace: an exact name or a single match switches right away, and several
+# matches (or no query) ask fzf.
+
+mkcluster apple banana
+kapply namespaces.yaml
+kapply -c banana mango.yaml
+kuba ns --list
+rows default kiwi kube-node-lease kube-public kube-system lemon switch-ns
+
+kuba ns kiwi
+stderr 'Context "apple" modified'
+current apple kiwi
+kuba ns lmon
+current apple lemon
+! calls fzf
+
+kuba ns ku
+current apple kube-node-lease
+env FZF_PICK=match:system
+kuba ns
+current apple kube-system
+calls fzf
+cmp stdout want-fzf.txt
+env FZF_PICK=
+
+# --command-multi prints the history form only when there was a choice to make.
+kuba ns ku --command-multi
+stdout '^kns kube-node-lease$'
+current apple kube-system
+kuba ns lmon --command-multi
+! stdout .
+current apple lemon
+
+! kuba ns cherry
+exitcode 1
+stderr cherry
+env FZF_PICK=cancel
+! kuba ns ku
+current apple lemon
+env FZF_PICK=
+
+# Go's --context picks the context whose namespace to set, from that context's namespaces, without switching to it.
+# Python's ns has no --context.
+[impl:python] ! kuba ns mngo --context=banana
+[impl:python] exitcode 2
+[impl:python] stderr 'No such option: --context'
+[impl:go] kuba ns mngo --context=banana
+current apple lemon
+exec kubectl config use-context banana
+[impl:python] current banana $NS
+[impl:go] current banana mango
+
+-- want-fzf.txt --
+fzf --bind=shift-tab:up,tab:down --query=ku '--prompt=Choose namespace: ' '--header=NAME  STATUS  AGE' --ansi
+| kube-node-lease  Active  <age>
+| kube-public  Active  <age>
+| kube-system  Active  <age>
+fzf --bind=shift-tab:up,tab:down --query= '--prompt=Choose namespace: ' '--header=NAME  STATUS  AGE' --ansi
+| default  Active  <age>
+| kiwi  Active  <age>
+| kube-node-lease  Active  <age>
+| kube-public  Active  <age>
+| kube-system  Active  <age>
+| lemon  Active  <age>
+| switch-ns  Active  <age>
+-- mango.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: mango}
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}

@@ -1,0 +1,113 @@
+# api with no query hands off to kubectl api-resources. A query prints the matching rows instead, with no command to
+# hand off to.
+
+mkcluster apple banana
+kapply -c banana crd.yaml
+kuba api
+stdout '^NAME +SHORTNAMES +APIVERSION +NAMESPACED +KIND$'
+stdout '^pods +po +v1 +true +Pod$'
+kuba api --api-group=policy
+rows poddisruptionbudgets
+kuba api --context=banana
+stdout '^widgets +wdg +fruit.example.com/v1 +true +Widget$'
+
+kuba api pods
+rows pods
+kuba api pod
+stdout '^pods +po +v1 +true +Pod *$'
+stdout '^poddisruptionbudgets +pdb +policy/v1 +true +PodDisruptionBudget *$'
+kuba api pod -o name
+stdout '^pods$'
+stdout '^poddisruptionbudgets$'
+! calls fzf
+
+# Tiered matching drops types that match only letter by letter.
+kuba api pod
+[impl:python] stdout '^mutatingadmissionpolicybindings '
+[impl:go] ! stdout admissionpolicy
+
+kuba api pod --select
+rows pods
+env FZF_PICK=match:disruption
+kuba api pod --one
+rows poddisruptionbudgets
+calls fzf
+stdout 'fzf --multi --query=pod '
+stdout 'fzf --bind=shift-tab:up,tab:down --query=pod '
+env FZF_PICK=
+
+# --one needs a query, and a query prints rows with no command for --command to print. Python exits 1 for these; Go
+# exits 2, as for any usage error.
+! kuba api --one
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+stderr '--one'
+! kuba api pod --command
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+! stdout .
+
+# Python bug: a query matching no type crashes.
+! kuba api kubelet
+exitcode 1
+[impl:python] stderr ValueError
+[impl:go] stderr kubelet
+
+# Python bug: a query ignores --context and kubectl's filter flags.
+[impl:python] ! kuba api widget --context=banana
+[impl:go] kuba api widget --context=banana
+[impl:go] rows widgets
+kuba api pod --api-group=policy
+[impl:python] stdout '^pods '
+[impl:go] rows poddisruptionbudgets
+kuba api role --namespaced=true
+stdout '^roles '
+[impl:python] stdout '^clusterroles '
+[impl:go] ! stdout '^clusterroles '
+[impl:python] kuba api review --verbs=list
+[impl:python] stdout '^tokenreviews '
+[impl:go] ! kuba api review --verbs=list
+[impl:go] exitcode 1
+
+# A query can't honor kubectl's output flags. Today they're dropped silently; kuba names them in an error.
+[impl:python] kuba api pod --sort-by=name
+[impl:go] ! kuba api pod --sort-by=name
+[impl:go] exitcode 2
+[impl:go] stderr sort-by
+
+# Python bug: -o=VALUE fails, since click reads the value as =VALUE.
+[impl:python] ! kuba api -o=wide
+[impl:python] exitcode 2
+[impl:go] kuba api -o=wide
+[impl:go] stdout '^NAME +SHORTNAMES +APIVERSION +NAMESPACED +KIND +VERBS'
+
+# With no query, --command prints the api-resources handoff, flags included.
+kuba api --command
+stdout '^kubectl api-resources'
+kuba api --api-group=policy -o name --command
+stdout 'api-resources .*policy'
+[impl:go] skip 'TODO(go): printed command form'
+kuba api --command
+cmp stdout want-command.txt
+kuba api --api-group=policy -o name --command
+cmp stdout want-name-command.txt
+
+-- want-command.txt --
+kubectl api-resources
+-- want-name-command.txt --
+kubectl api-resources --output=name --api-group=policy
+-- crd.yaml --
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: widgets.fruit.example.com
+spec:
+  group: fruit.example.com
+  names: {kind: Widget, plural: widgets, singular: widget, shortNames: [wdg]}
+  scope: Namespaced
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema: {type: object}

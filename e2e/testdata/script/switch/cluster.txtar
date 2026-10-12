@@ -1,0 +1,63 @@
+# cluster switches context and namespace in one go. "-" keeps the current namespace, and leaving the namespace out
+# asks fzf.
+
+mkcluster apple banana
+kapply -c apple namespaces.yaml
+kapply -c banana kiwi.yaml
+kuba cluster banana kiwi
+stderr 'Switched to context "banana"'
+current banana kiwi
+kuba cluster apple -
+current apple kiwi
+! calls fzf
+
+kuba cluster ban
+current banana default
+calls fzf
+cmp stdout want-fzf.txt
+
+! kuba cluster ban lmon
+exitcode 1
+stderr lmon
+current banana default
+
+# --command-multi prints the history form only when there was a choice to make.
+kuba cluster a ki --command-multi
+stdout '^kclus apple kiwi$'
+current banana default
+kuba cluster apl lmon --command-multi
+! stdout .
+current apple lemon
+
+# cluster picks the context itself, so --context is a usage error. Python's cluster has no --context.
+! kuba cluster banana kiwi --context=apple
+exitcode 2
+[impl:python] stderr 'No such option: --context'
+current apple lemon
+
+# Python bug: a query matching no context crashes.
+! kuba cluster cherry kiwi
+exitcode 1
+[impl:python] stderr IndexError
+[impl:go] stderr cherry
+
+-- want-fzf.txt --
+fzf --bind=shift-tab:up,tab:down --query= '--prompt=Choose namespace: ' '--header=NAME  STATUS  AGE' --ansi
+| default  Active  <age>
+| kiwi  Active  <age>
+| kube-node-lease  Active  <age>
+| kube-public  Active  <age>
+| kube-system  Active  <age>
+| switch-cluster  Active  <age>
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+-- kiwi.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}

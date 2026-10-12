@@ -1,0 +1,63 @@
+# With SHELL naming any other shell, shellenv writes aliases and functions that skip history, here sourced in bash and
+# dash.
+
+mkcluster apple
+mkcontext banana
+kapply namespaces.yaml pods.yaml nodes.yaml
+env SHELL=/bin/bash
+env KUBA_CLUSTERS=ban=banana
+shellenv
+
+shell kpn
+rows apple-1 apple-2
+shell 'kpf apple-1'
+calls fx
+stdout '"name": "apple-1"'
+shell kban
+current banana $NS
+exec kubectl config use-context apple
+shell 'kns kiwi'
+current apple kiwi
+
+# Python bug: --ssh-bastion lands unquoted inside each kssh alias's single quotes, so a | turns the alias definition
+# into a pipeline, and kssh is never defined. Go quotes it, as zsh's functions already do.
+shellenv --ssh-bastion '*a*|*b*=jump' --ssh-use-name
+[impl:python] ! shell 'kssh fig'
+[impl:python] stderr 'kssh: command not found'
+[impl:python] ! calls ssh
+[impl:go] shell 'kssh fig'
+[impl:go] calls ssh
+[impl:go] stdout '^ssh -J jump fig$'
+
+# Python bug: the output uses bash's function keyword and [[, so a POSIX shell like dash stops sourcing it at the first
+# function. Go's output is POSIX.
+[exec:dash] env SHELL=/bin/dash
+[exec:dash] shellenv
+[exec:dash] [impl:python] ! shell kpn
+[exec:dash] [impl:python] stderr 'Syntax error'
+[exec:dash] [impl:go] shell kpn
+[exec:dash] [impl:go] rows apple-1 apple-2
+
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status: {phase: Running}
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: fig}
+status:
+  addresses: [{type: InternalIP, address: 10.0.0.1}]
+  conditions: [{type: Ready, status: "True"}]

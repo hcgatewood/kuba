@@ -1,0 +1,166 @@
+# A pod's container comes from the CONTAINER query, or else from fzf, which lists the likeliest main container first:
+# one named in the pod's name, with init containers and helper names like sidecar or exporter last. --guess takes the
+# top one without asking, skipping init containers. --all logs every container through stern.
+
+kapply pods.yaml
+kuba logs apple-1 --command
+stdout 'apple-1 .*main'
+kuba logs apple-1 side --command
+stdout 'apple-1 .*sidecar'
+kuba logs apple-1 init --command
+stdout 'apple-1 .*init-db'
+! kuba logs apple-1 nomatch --command
+exitcode 1
+stderr nomatch
+kuba logs apple-1 --guess --command
+stdout 'apple-1 .*main'
+kuba logs cherry --guess --command
+stdout 'cherry-1 .*cherry'
+kuba logs apple-1 --all --command
+stdout 'stern .*apple-1'
+! stdout container
+
+# Python orders helpers among themselves by a name-similarity score. Go keeps them in the pod's order.
+kuba logs cherry --command
+calls fzf
+[impl:python] cmp stdout want-fzf.txt
+[impl:go] stdout '^fzf .*\n\| main\n\| sidecar\n\| init-db$'
+[impl:go] stdout '^fzf .*\n\| cherry\n\| log-agent\n\| metrics-exporter$'
+
+# Python bug: an init container ranks last only when its name says init, so donut-migrate, named like its pod, tops the
+# picker. Go ranks init containers after regular ones. --guess never takes one.
+kuba logs dnut --command
+[impl:python] stdout 'donut-1 .*donut-migrate'
+[impl:go] stdout 'donut-1 .*server'
+kuba logs dnut --guess --command
+stdout 'donut-1 .*server'
+
+# Python bug: --guess ignores the kubectl.kubernetes.io/default-container annotation, which kubectl itself defaults to.
+# Go ranks that container first.
+kuba logs egg --guess --command
+[impl:python] stdout 'egg-1 .*egg'
+[impl:go] stdout 'egg-1 .*worker'
+
+# --guess and --all can't go together. Python exits 1 for that; Go exits 2, as for any usage error.
+! kuba logs apple-1 --guess --all --command
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+
+# Python bug: picking several containers hands stern --container="a|b" with the double quotes in it, so its regex
+# matches no container.
+env FZF_PICK=all
+kuba logs apple-1
+calls kubectl-stern
+[impl:python] cmp stdout want-stern.txt
+[impl:go] ! stdout '"'
+env FZF_PICK=
+
+# What runs is the command --command prints.
+env KUBA_KUBECTL=kubectl-rec
+env E2E_OUT_KUBECTL='hello from main'
+kuba logs apple-2
+stdout '^hello from main$'
+calls kubectl
+stdout '^kubectl .*logs .*apple-2'
+env KUBA_KUBECTL=kubectl
+
+[impl:go] skip 'TODO(go): printed command form'
+kuba logs apple-1 main --command
+cmp stdout want-main-command.txt
+kuba logs apple-1 side --command
+cmp stdout want-sidecar-command.txt
+kuba logs apple-1 init --command
+cmp stdout want-init-command.txt
+kuba logs apple-1 --guess --command
+cmp stdout want-main-command.txt
+kuba logs cherry --guess --command
+cmp stdout want-cherry-command.txt
+kuba logs apple-1 --all --command
+cmp stdout want-all-command.txt
+env FZF_PICK=all
+kuba logs apple-1 --command
+cmp stdout want-picked-command.txt
+
+-- want-fzf.txt --
+fzf --multi --query= '--prompt=Choose container: ' --ansi
+| main
+| sidecar
+| init-db
+fzf --multi --query= '--prompt=Choose container: ' --ansi
+| cherry
+| metrics-exporter
+| log-agent
+-- want-stern.txt --
+kubectl-stern apple-1 '--container="main|sidecar|init-db"' --since=1h --no-follow
+-- want-main-command.txt --
+kubectl logs apple-1 --container=main --since=1h
+-- want-sidecar-command.txt --
+kubectl logs apple-1 --container=sidecar --since=1h
+-- want-init-command.txt --
+kubectl logs apple-1 --container=init-db --since=1h
+-- want-cherry-command.txt --
+kubectl logs cherry-1 --container=cherry --since=1h
+-- want-all-command.txt --
+kubectl stern apple-1 --since=1h --no-follow
+-- want-picked-command.txt --
+kubectl stern apple-1 --container="main|sidecar|init-db" --since=1h --no-follow
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec:
+  initContainers: [{name: init-db, image: busybox}]
+  containers: [{name: main, image: busybox}, {name: sidecar, image: envoy}]
+status:
+  phase: Running
+  initContainerStatuses:
+  - {name: init-db, image: busybox, imageID: "", ready: false, restartCount: 0, state: {terminated: {exitCode: 0}}}
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: sidecar, image: envoy, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: donut-1}
+spec:
+  initContainers: [{name: donut-migrate, image: busybox}]
+  containers: [{name: server, image: busybox}]
+status:
+  phase: Running
+  initContainerStatuses:
+  - {name: donut-migrate, image: busybox, imageID: "", ready: false, restartCount: 0, state: {terminated: {exitCode: 0}}}
+  containerStatuses:
+  - {name: server, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: egg-1
+  annotations: {kubectl.kubernetes.io/default-container: worker}
+spec: {containers: [{name: egg, image: busybox}, {name: worker, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: egg, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: worker, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: cherry-1}
+spec:
+  containers: [{name: log-agent, image: busybox}, {name: cherry, image: busybox}, {name: metrics-exporter, image: busybox}]
+status:
+  phase: Running
+  containerStatuses:
+  - {name: cherry, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: log-agent, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+  - {name: metrics-exporter, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}

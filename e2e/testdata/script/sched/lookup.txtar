@@ -1,0 +1,142 @@
+# sched finds its pod by query, like any pod lookup, or reads it from a file with -f. Nodes are cluster-scoped, so the
+# script needs a server of its own, and banana has nodes of its own for --context.
+
+mkcluster apple banana
+kapply namespaces.yaml
+kapply nodes.yaml pods.yaml
+kapply -c banana banana-nodes.yaml banana-pods.yaml
+
+# Python bug: sched passes kubecolor's --plain to whatever kubectl it runs, so it fails unless KUBA_KUBECTL is kubecolor.
+[impl:python] ! kuba sched apple-1
+[impl:python] exitcode 1
+[impl:python] stderr 'flags cannot be placed before plugin name: --plain'
+[impl:go] kuba sched apple-1 --pass --names
+[impl:go] rows fig
+env KUBA_KUBECTL=kubecolor
+
+kuba sched apple-1 --pass --names
+rows fig
+env FZF_PICK=match:apple-2
+kuba sched aple --pass --names
+rows grape
+calls fzf
+stdout '^\| apple-1 '
+stdout '^\| apple-2 '
+env FZF_PICK=
+kuba sched banana-1 -n kiwi --pass --names
+rows grape
+! kuba sched mango
+exitcode 1
+stderr mango
+
+# Python bug: sched fetches the pod it found by name, along with -A or -l, and kubectl rejects a name with either. Go
+# fetches it from its own namespace.
+[impl:python] ! kuba sched banana-1 -A
+[impl:python] exitcode 1
+[impl:python] stderr 'across all namespaces'
+[impl:go] kuba sched banana-1 -A --pass --names
+[impl:go] rows grape
+[impl:python] ! kuba sched -l tier=web
+[impl:python] exitcode 1
+[impl:python] stderr 'name cannot be provided when a selector is specified'
+[impl:go] kuba sched -l tier=web --pass --names
+[impl:go] rows grape
+
+# A file that isn't a pod is an error. A missing one exits 2 on Python, as if the command line were wrong; Go exits 1,
+# since the command line is fine.
+! kuba sched -f missing.yaml
+[impl:python] exitcode 2
+[impl:go] exitcode 1
+stderr missing.yaml
+! kuba sched -f garbled.yaml
+exitcode 1
+! kuba sched -f deploy.yaml
+exitcode 1
+stderr Pod
+
+# Python bug: a pod file without a namespace is an error, though manifests usually leave it out. Go takes the namespace
+# from -n or the context, as kubectl does.
+[impl:python] ! kuba sched -f no-namespace.yaml
+[impl:python] exitcode 1
+[impl:python] stderr 'does not have a name or namespace'
+[impl:go] kuba sched -f no-namespace.yaml --pass --names
+[impl:go] rows fig
+
+# --pass and --fail conflict: Python exits 1, and Go 2, since that's a usage error.
+! kuba sched apple-1 --pass --fail
+[impl:python] exitcode 1
+[impl:go] exitcode 2
+
+# Go looks where --context points. Python's sched has no --context.
+[impl:python] ! kuba sched apple-1 --context=banana
+[impl:python] exitcode 2
+[impl:python] stderr 'No such option: --context'
+[impl:go] kuba sched apple-1 --context=banana
+[impl:go] stdout '^PASS  honey$'
+[impl:go] ! stdout 'fig|grape'
+
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: fig
+  labels: {zone: a}
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: grape
+  labels: {zone: b}
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec:
+  nodeSelector: {zone: a}
+  containers: [{name: main, image: busybox}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: apple-2
+  labels: {tier: web}
+spec:
+  nodeSelector: {zone: b}
+  containers: [{name: main, image: busybox}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: banana-1, namespace: kiwi}
+spec:
+  nodeSelector: {zone: b}
+  containers: [{name: main, image: busybox}]
+-- banana-nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata:
+  name: honey
+  labels: {zone: a}
+-- banana-pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec:
+  nodeSelector: {zone: a}
+  containers: [{name: main, image: busybox}]
+-- garbled.yaml --
+kind: [Pod
+-- deploy.yaml --
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: apple, namespace: kiwi}
+-- no-namespace.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple}
+spec:
+  nodeSelector: {zone: a}
+  containers: [{name: main, image: busybox}]

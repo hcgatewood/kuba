@@ -1,0 +1,84 @@
+# With SHELL naming zsh, shellenv writes functions that put the command they run into history, to rerun or edit.
+
+mkcluster apple
+mkcontext banana
+kapply namespaces.yaml pods.yaml nodes.yaml
+env SHELL=/bin/zsh
+env KUBA_CLUSTERS=ban=banana
+shellenv --kubectl kubectl-rec --ssh-bastion '*a*|*b*=jump' --ssh-use-name
+
+shell kpn
+rows apple-1 apple-2
+
+# fx gets the JSON, and history the whole pipeline.
+shell 'kpf apple-1'
+history 'apple-1.* \| kuba ifne fx$'
+calls fx
+stdout '"name": "apple-1"'
+
+# The functions' own kuba runs use --kubectl too, since shellenv exports it as KUBA_KUBECTL.
+env E2E_OUT_KUBECTL='hello from apple-1'
+shell 'kl apple-1'
+stdout 'hello from apple-1'
+history '^kubectl-rec logs apple-1'
+env E2E_OUT_KUBECTL=
+
+# kssh carries the ssh options, * and | intact.
+shell 'kssh fig'
+history '^ssh -J jump fig$'
+calls ssh
+stdout '^ssh -J jump fig$'
+
+# A cluster function switches to its cluster, keeping the namespace unless given one. Like kns, it puts a command
+# into history only when fzf made a choice, and then in kclus form.
+shell kban
+current banana $NS
+! history
+exec kubectl config use-context apple
+env FZF_PICK=match:kiwi
+shell 'kban k'
+current banana kiwi
+history '^kclus banana kiwi$'
+exec kubectl config use-context apple
+shell 'kns k'
+current apple kiwi
+history '^kns kiwi$'
+env FZF_PICK=
+
+# Go also exports KUBA_SHELLENV_VERSION, so doctor can spot a shell set up by an older kuba.
+[impl:go] shell 'print -r -- $KUBA_SHELLENV_VERSION'
+[impl:go] stdout .
+
+-- namespaces.yaml --
+apiVersion: v1
+kind: Namespace
+metadata: {name: kiwi}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lemon}
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: fig}
+status:
+  addresses: [{type: InternalIP, address: 10.0.0.1}]
+  conditions: [{type: Ready, status: "True"}]

@@ -1,0 +1,89 @@
+# Errors that cut across commands: missing config, unreachable clusters, unknown types, a canceled fzf, and failing
+# final commands.
+
+kapply pods.yaml
+mkcontext banana
+
+# Python bug: with no kubeconfig, kubectl falls back to localhost:8080, so the error is a refused connection there.
+# Go says there's no kubeconfig. Listing contexts just lists none.
+env KUBECONFIG=$WORK/missing.yaml
+! kuba get pod aple
+exitcode 1
+[impl:python] stderr 'localhost:8080 was refused'
+[impl:go] stderr kubeconfig
+kuba ctx --list
+! stdout .
+env KUBECONFIG=$HOME/.kube/config
+
+# A cluster kuba can't reach is an error naming its address. Python bug: it adds the failed kubectl call as a Python
+# list.
+exec kubectl config set-cluster donut --server=https://127.0.0.1:1
+exec kubectl config set-context donut --cluster=donut --user=apple --namespace=$NS
+exec kubectl config use-context donut
+! kuba get pod aple
+exitcode 1
+stderr '127\.0\.0\.1:1'
+[impl:python] stderr '\[''kubectl'', ''get'', ''pod''\]'
+[impl:go] ! stderr 'exit status'
+exec kubectl config use-context apple
+exec kubectl config delete-context donut
+
+# A type the server doesn't have is an error naming it.
+! kuba get pear aple
+exitcode 1
+stderr pear
+
+# Canceling fzf exits 130 in Go, as Ctrl-C does anywhere else. Python exits 1.
+env FZF_PICK=cancel
+! kuba get pod aple -o yaml
+[impl:python] exitcode 1
+[impl:python] stderr 'no pod selected'
+[impl:go] exitcode 130
+! kuba ns
+[impl:python] exitcode 1
+[impl:go] exitcode 130
+env FZF_PICK=
+
+# A failing final command's code comes back, and only its own message. Python bug: kuba exits 1, adding an error of
+# its own.
+env KUBA_KUBECTL=kubectl-rec
+env E2E_EXIT_KUBECTL=7
+! kuba logs apple-1
+[impl:python] exitcode 1
+[impl:python] stderr 'failed to run command'
+[impl:go] exitcode 7
+[impl:go] ! stderr .
+env E2E_EXIT_KUBECTL=
+env KUBA_KUBECTL=kubectl
+
+# With several commands, Go runs them all, then exits with the first failure's code. Python bug: the first failure
+# stops the rest, and kuba exits 1.
+env KUBA_CLUSTERS='k*=*'
+env FZF_PICK=all
+env E2E_EXIT_KUBECTL_STERN=3
+! kuba get pod apple-1 --multi-cluster -o logs
+[impl:python] exitcode 1
+[impl:go] exitcode 3
+calls kubectl-stern
+stdout 'context=apple'
+[impl:python] ! stdout banana
+[impl:go] stdout banana
+
+-- pods.yaml --
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-1}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: apple-2}
+spec: {containers: [{name: main, image: busybox}]}
+status:
+  phase: Running
+  containerStatuses:
+  - {name: main, image: busybox, imageID: "", ready: true, restartCount: 0, state: {running: {}}}

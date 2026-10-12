@@ -1,0 +1,65 @@
+# KUBA_SSH_BASTION, or --bastion in its place, routes ssh through a jump host chosen by the current context's name. The
+# first matching pattern wins, * matches anything, and | separates alternatives. With no match, ssh connects directly.
+
+mkcluster apple
+kapply nodes.yaml
+mkcontext banana-prod banana-staging cherry
+exec kubectl config use-context banana-prod
+env KUBA_SSH_BASTION='*prod*=prod-bastion,*=default-bastion'
+kuba ssh fig --command
+stdout '^ssh -J prod-bastion 10.0.0.1$'
+kuba ssh fig --loud --command
+stderr 'Connecting to 10.0.0.1 in banana-prod via prod-bastion'
+exec kubectl config use-context cherry
+kuba ssh fig --command
+stdout '^ssh -J default-bastion 10.0.0.1$'
+kuba ssh fig --bastion '*=flag-bastion' --command
+stdout '^ssh -J flag-bastion 10.0.0.1$'
+
+# Order decides, so an earlier catch-all shadows the rest.
+env KUBA_SSH_BASTION='*=default-bastion,*prod*=prod-bastion'
+exec kubectl config use-context banana-prod
+kuba ssh fig --command
+stdout '^ssh -J default-bastion 10.0.0.1$'
+
+env KUBA_SSH_BASTION='*prod*|*staging*=jump-bastion'
+exec kubectl config use-context banana-staging
+kuba ssh fig --command
+stdout '^ssh -J jump-bastion 10.0.0.1$'
+exec kubectl config use-context cherry
+kuba ssh fig --command
+stdout '^ssh 10.0.0.1$'
+
+# Python bug: patterns are regexes matched anywhere in the name, so prod alone matches banana-prod, and . matches any
+# character. Go matches whole names, and treats everything but * and | literally, as KUBA_CLUSTERS does.
+exec kubectl config use-context banana-prod
+env KUBA_SSH_BASTION='prod=prod-bastion'
+kuba ssh fig --command
+[impl:python] stdout '^ssh -J prod-bastion 10.0.0.1$'
+[impl:go] stdout '^ssh 10.0.0.1$'
+env KUBA_SSH_BASTION='banana.prod=prod-bastion'
+kuba ssh fig --command
+[impl:python] stdout '^ssh -J prod-bastion 10.0.0.1$'
+[impl:go] stdout '^ssh 10.0.0.1$'
+
+# A malformed KUBA_SSH_BASTION is an error. Python exits 2 as if the command line were wrong; Go exits 1, since the
+# command line is fine.
+env KUBA_SSH_BASTION='nonsense'
+! kuba ssh fig --command
+[impl:python] exitcode 2
+[impl:go] exitcode 1
+stderr nonsense
+
+# Go picks the bastion by the context ssh looks in, so --context picks it too.
+[impl:go] env KUBA_SSH_BASTION='*prod*=prod-bastion'
+[impl:go] exec kubectl config use-context cherry
+[impl:go] kuba ssh fig --context=banana-prod --command
+[impl:go] stdout '^ssh -J prod-bastion 10.0.0.1$'
+
+-- nodes.yaml --
+apiVersion: v1
+kind: Node
+metadata: {name: fig}
+status:
+  addresses: [{type: InternalIP, address: 10.0.0.1}]
+  conditions: [{type: Ready, status: "True"}]
