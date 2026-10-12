@@ -20,3 +20,6 @@ linters:
 formatters:
   enable:
     - gofmt
+  exclusions:
+    # Format generated files too, so drift in a generator's output shows up as a diff
+    generated: disable

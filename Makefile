@@ -1,7 +1,13 @@
-.PHONY: build check clean cover demo demo_open e2e e2e-go e2e-python fmt gen help lint py-build py-install py-publish py-uninstall test tidy venv
+.PHONY: build check clean cover demo demo_open e2e e2e-go e2e-python fmt gen help lint py-build py-install py-publish py-uninstall test tidy tools venv
 
 K8S_VERSION := 1.37.0
 ENVTEST := .cache/envtest/k8s/$(K8S_VERSION)-$(shell go env GOOS)-$(shell go env GOARCH)
+
+TOOLS := .cache/tools/$(shell go env GOVERSION)
+GOLANGCI_LINT_VERSION := v2.14.0
+GOIMPORTS_REVISER_VERSION := v3.13.2
+GOLANGCI_LINT := $(TOOLS)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+GOIMPORTS_REVISER := $(TOOLS)/goimports-reviser-$(GOIMPORTS_REVISER_VERSION)
 
 # General
 
@@ -72,11 +78,24 @@ $(ENVTEST):
 
 check: lint test ## Pass if lint and tests pass
 
-fmt: ## Format all Go files
-	golangci-lint fmt
+fmt: $(GOIMPORTS_REVISER) $(GOLANGCI_LINT) ## Format all Go files
+	$(GOIMPORTS_REVISER) -apply-to-generated-files ./...
+	$(GOLANGCI_LINT) fmt
 
-lint: ## Lint all Go files
-	golangci-lint run
+lint: $(GOIMPORTS_REVISER) $(GOLANGCI_LINT) ## Lint all Go files
+	$(GOLANGCI_LINT) run
+	@files=$$($(GOIMPORTS_REVISER) -list-diff -apply-to-generated-files ./...) || exit 1; \
+		if [ -n "$$files" ]; then echo "Imports out of order (run make fmt):"; echo "$$files"; exit 1; fi
+
+tools: $(GOIMPORTS_REVISER) $(GOLANGCI_LINT) ## Install dev tools
+
+$(GOLANGCI_LINT):
+	GOBIN=$(CURDIR)/$(TOOLS) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	mv $(TOOLS)/golangci-lint $@
+
+$(GOIMPORTS_REVISER):
+	GOBIN=$(CURDIR)/$(TOOLS) go install github.com/incu6us/goimports-reviser/v3@$(GOIMPORTS_REVISER_VERSION)
+	mv $(TOOLS)/goimports-reviser $@
 
 tidy: ## Run go mod tidy
 	go mod tidy
